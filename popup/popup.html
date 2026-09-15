@@ -187,23 +187,37 @@
         </label>
       </div>
 
-      <!-- Shortcuts Cheatsheet Card (Collapsible) -->
+      <!-- On-Screen Shortcut Dock Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">On-Screen Shortcut Dock</span>
+          <span class="feature-desc">Floating controls over video with clickable shortcut buttons</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-dock">
+          <input type="checkbox" id="toggle-dock" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Shortcuts Cheatsheet Card (Collapsible & Interactive) -->
       <div class="shortcuts-panel" id="shortcuts-panel" style="display: none;">
         <div class="shortcuts-header">
-          <span class="shortcuts-title">Keyboard Shortcuts Matrix</span>
+          <span class="shortcuts-title">Live Shortcuts Matrix</span>
+          <span class="shortcuts-hint">Click any row to test/trigger action</span>
         </div>
         <div class="shortcuts-grid">
-          <div class="shortcut-row"><span class="shortcut-key">Space / K</span><span class="shortcut-action">Play / Pause</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">← / →</span><span class="shortcut-action">Seek ±5s (Shift ±15s)</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">↑ / ↓</span><span class="shortcut-action">Volume ±5%</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-action">Mute / Unmute</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">F</span><span class="shortcut-action">Fullscreen Toggle</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">Double Click</span><span class="shortcut-action">Fullscreen Toggle</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">S / I</span><span class="shortcut-action">Skip Intro (+85s)</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">O</span><span class="shortcut-action">Skip Outro (+85s)</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">[ / ]</span><span class="shortcut-action">Playback Speed (-/+)</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">0 – 9</span><span class="shortcut-action">Jump 0% – 90%</span></div>
-          <div class="shortcut-row"><span class="shortcut-key">N / P</span><span class="shortcut-action">Next Episode</span></div>
+          <div class="shortcut-row interactive" data-cmd="toggle_play" title="Trigger Play/Pause"><span class="shortcut-key">Space / K</span><span class="shortcut-action">Play / Pause</span><span class="shortcut-run-tag">Run ⏯</span></div>
+          <div class="shortcut-row interactive" data-cmd="seek_backward" title="Trigger Rewind"><span class="shortcut-key">← / J</span><span class="shortcut-action">Rewind 5s</span><span class="shortcut-run-tag">Run ⏪</span></div>
+          <div class="shortcut-row interactive" data-cmd="seek_forward" title="Trigger Forward"><span class="shortcut-key">→ / L</span><span class="shortcut-action">Forward 5s</span><span class="shortcut-run-tag">Run ⏩</span></div>
+          <div class="shortcut-row interactive" data-cmd="skip_intro" title="Trigger Skip Intro"><span class="shortcut-key">S / I</span><span class="shortcut-action">Skip Intro (+85s)</span><span class="shortcut-run-tag">Run ⚡</span></div>
+          <div class="shortcut-row interactive" data-cmd="skip_outro" title="Trigger Skip Outro"><span class="shortcut-key">O</span><span class="shortcut-action">Skip Outro (+85s)</span><span class="shortcut-run-tag">Run ⚡</span></div>
+          <div class="shortcut-row interactive" data-cmd="volume_down" title="Trigger Volume Down"><span class="shortcut-key">↓</span><span class="shortcut-action">Volume -5%</span><span class="shortcut-run-tag">Run 🔉</span></div>
+          <div class="shortcut-row interactive" data-cmd="volume_up" title="Trigger Volume Up"><span class="shortcut-key">↑</span><span class="shortcut-action">Volume +5%</span><span class="shortcut-run-tag">Run 🔊</span></div>
+          <div class="shortcut-row interactive" data-cmd="toggle_mute" title="Trigger Mute"><span class="shortcut-key">M</span><span class="shortcut-action">Mute / Unmute</span><span class="shortcut-run-tag">Run 🔇</span></div>
+          <div class="shortcut-row interactive" data-cmd="speed_up" title="Trigger Speed Up"><span class="shortcut-key">] / &gt;</span><span class="shortcut-action">Speed Up</span><span class="shortcut-run-tag">Run ⚡</span></div>
+          <div class="shortcut-row interactive" data-cmd="speed_down" title="Trigger Speed Down"><span class="shortcut-key">[ / &lt;</span><span class="shortcut-action">Speed Down</span><span class="shortcut-run-tag">Run ⚡</span></div>
+          <div class="shortcut-row interactive" data-cmd="toggle_fullscreen" title="Trigger Fullscreen"><span class="shortcut-key">F</span><span class="shortcut-action">Fullscreen</span><span class="shortcut-run-tag">Run ⛶</span></div>
+          <div class="shortcut-row interactive" data-cmd="next_episode" title="Trigger Next Episode"><span class="shortcut-key">N / P</span><span class="shortcut-action">Next Episode</span><span class="shortcut-run-tag">Run ⏭</span></div>
         </div>
       </div>
     </section>

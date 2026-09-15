@@ -548,8 +548,26 @@ input:checked + .slider-sm:before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 3px 0;
+  padding: 5px 8px;
   font-size: 11px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.shortcut-row.interactive {
+  cursor: pointer;
+}
+
+.shortcut-row.interactive:hover {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.35);
+  transform: translateX(2px);
+}
+
+.shortcut-row.interactive:active {
+  transform: scale(0.98);
+  background: rgba(16, 185, 129, 0.25);
 }
 
 .shortcut-key {
@@ -567,6 +585,34 @@ input:checked + .slider-sm:before {
 .shortcut-action {
   color: var(--text-secondary);
   font-size: 11px;
+  flex: 1;
+  margin-left: 8px;
+}
+
+.shortcut-run-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+  transition: all 0.15s ease;
+}
+
+.shortcut-row.interactive:hover .shortcut-run-tag {
+  opacity: 1;
+  background: rgba(16, 185, 129, 0.3);
+  color: #ffffff;
+  border-color: #34d399;
+}
+
+.shortcuts-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 /* ==========================================================================

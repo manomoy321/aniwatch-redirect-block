@@ -15,6 +15,7 @@
     enableAutoNext: true,
     enableAutoSkipIntro: true,
     enableAutoSkipOutro: true,
+    enableShortcutDock: true,
     skipIntroSeconds: 85,
     seekSeconds: 5,
     whitelist: []
@@ -29,39 +30,58 @@
   let hasAttemptedAutoplay = false;
   let introSkippedForCurrentVideo = false;
   let outroSkippedForCurrentVideo = false;
+  let activeDock = null;
+  let dockHideTimeout = null;
+  let isDockCollapsed = false;
 
   // 1. Sync settings from chrome.storage
   function updatePlayerSettings() {
-    chrome.storage.local.get([
-      'enabled',
-      'enableKeyboardControls',
-      'enableFullscreenFix',
-      'enableAutoPlay',
-      'enableAutoNext',
-      'enableAutoSkipIntro',
-      'enableAutoSkipOutro',
-      'skipIntroSeconds',
-      'seekSeconds',
-      'whitelist'
-    ], (res) => {
-      if (res.enabled !== undefined) playerSettings.enabled = res.enabled;
-      if (res.enableKeyboardControls !== undefined) playerSettings.enableKeyboardControls = res.enableKeyboardControls;
-      if (res.enableFullscreenFix !== undefined) playerSettings.enableFullscreenFix = res.enableFullscreenFix;
-      if (res.enableAutoPlay !== undefined) playerSettings.enableAutoPlay = res.enableAutoPlay;
-      if (res.enableAutoNext !== undefined) playerSettings.enableAutoNext = res.enableAutoNext;
-      if (res.enableAutoSkipIntro !== undefined) playerSettings.enableAutoSkipIntro = res.enableAutoSkipIntro;
-      if (res.enableAutoSkipOutro !== undefined) playerSettings.enableAutoSkipOutro = res.enableAutoSkipOutro;
-      if (res.skipIntroSeconds !== undefined) playerSettings.skipIntroSeconds = Number(res.skipIntroSeconds) || 85;
-      if (res.seekSeconds !== undefined) playerSettings.seekSeconds = Number(res.seekSeconds) || 5;
-      if (Array.isArray(res.whitelist)) playerSettings.whitelist = res.whitelist;
-    });
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
+      if (activeVideo) createOrUpdatePlayerDock(activeVideo);
+      return;
+    }
+
+    try {
+      chrome.storage.local.get([
+        'enabled',
+        'enableKeyboardControls',
+        'enableFullscreenFix',
+        'enableAutoPlay',
+        'enableAutoNext',
+        'enableAutoSkipIntro',
+        'enableAutoSkipOutro',
+        'enableShortcutDock',
+        'skipIntroSeconds',
+        'seekSeconds',
+        'whitelist'
+      ], (res) => {
+        if (chrome.runtime.lastError) return;
+        if (res.enabled !== undefined) playerSettings.enabled = res.enabled;
+        if (res.enableKeyboardControls !== undefined) playerSettings.enableKeyboardControls = res.enableKeyboardControls;
+        if (res.enableFullscreenFix !== undefined) playerSettings.enableFullscreenFix = res.enableFullscreenFix;
+        if (res.enableAutoPlay !== undefined) playerSettings.enableAutoPlay = res.enableAutoPlay;
+        if (res.enableAutoNext !== undefined) playerSettings.enableAutoNext = res.enableAutoNext;
+        if (res.enableAutoSkipIntro !== undefined) playerSettings.enableAutoSkipIntro = res.enableAutoSkipIntro;
+        if (res.enableAutoSkipOutro !== undefined) playerSettings.enableAutoSkipOutro = res.enableAutoSkipOutro;
+        if (res.enableShortcutDock !== undefined) playerSettings.enableShortcutDock = res.enableShortcutDock;
+        if (res.skipIntroSeconds !== undefined) playerSettings.skipIntroSeconds = Number(res.skipIntroSeconds) || 85;
+        if (res.seekSeconds !== undefined) playerSettings.seekSeconds = Number(res.seekSeconds) || 5;
+        if (Array.isArray(res.whitelist)) playerSettings.whitelist = res.whitelist;
+
+        if (activeVideo) {
+          createOrUpdatePlayerDock(activeVideo);
+        }
+      });
+    } catch (e) {}
   }
 
   updatePlayerSettings();
 
-  chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local') updatePlayerSettings();
-  });
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === 'local') updatePlayerSettings();
+    });
+  }
 
   function isEnabled() {
     return playerSettings.enabled && !playerSettings.whitelist.includes(currentHost);
@@ -186,6 +206,173 @@
     }, 1000);
   }
 
+  // 2.5 On-Screen Floating Shortcut UI Dock
+  function createOrUpdatePlayerDock(video) {
+    if (!isEnabled() || !playerSettings.enableShortcutDock) {
+      if (activeDock && activeDock.parentNode) {
+        activeDock.parentNode.removeChild(activeDock);
+        activeDock = null;
+      }
+      return;
+    }
+
+    if (!video || !video.isConnected) return;
+
+    // Determine appropriate container element
+    let container = video.closest('.player-container, .jwplayer, .video-js, [id*="player"], .player, #player');
+    if (!container) {
+      container = video.parentElement || document.body;
+    }
+
+    const style = window.getComputedStyle(container);
+    if (style.position === 'static' && container !== document.body) {
+      container.style.position = 'relative';
+    }
+
+    let dock = container.querySelector('.fg-player-dock');
+    if (!dock) {
+      dock = document.createElement('div');
+      dock.className = 'fg-player-dock' + (isDockCollapsed ? ' fg-dock-collapsed' : '');
+      dock.id = 'fg-player-shortcut-dock';
+
+      dock.innerHTML = `
+        <div class="fg-dock-brand" title="Click to minimize or expand shortcut dock">
+          <span class="fg-dock-brand-icon">🛡️</span>
+          <span>FG Controls</span>
+        </div>
+        <div class="fg-dock-divider"></div>
+        <button type="button" class="fg-dock-btn" data-cmd="toggle_play" title="Play / Pause (Space or K)">
+          <span class="fg-dock-btn-icon">⏯</span>
+          <span class="fg-dock-btn-label">Play</span>
+          <span class="fg-key-chip">Space</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="seek_backward" title="Rewind 5s (← or J)">
+          <span class="fg-dock-btn-icon">⏪</span>
+          <span class="fg-dock-btn-label">-5s</span>
+          <span class="fg-key-chip">←</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="seek_forward" title="Forward 5s (→ or L)">
+          <span class="fg-dock-btn-icon">⏩</span>
+          <span class="fg-dock-btn-label">+5s</span>
+          <span class="fg-key-chip">→</span>
+        </button>
+        <button type="button" class="fg-dock-btn fg-dock-btn-special" data-cmd="skip_intro" title="Skip Intro +85s (S or I)">
+          <span class="fg-dock-btn-icon">⚡</span>
+          <span class="fg-dock-btn-label">Skip OP</span>
+          <span class="fg-key-chip">S</span>
+        </button>
+        <button type="button" class="fg-dock-btn fg-dock-btn-special" data-cmd="skip_outro" title="Skip Outro +85s (O)">
+          <span class="fg-dock-btn-icon">⚡</span>
+          <span class="fg-dock-btn-label">Skip ED</span>
+          <span class="fg-key-chip">O</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="volume_down" title="Volume Down 5% (↓)">
+          <span class="fg-dock-btn-icon">🔉</span>
+          <span class="fg-key-chip">↓</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="volume_up" title="Volume Up 5% (↑)">
+          <span class="fg-dock-btn-icon">🔊</span>
+          <span class="fg-key-chip">↑</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="toggle_speed" title="Playback Speed ([ / ])">
+          <span class="fg-dock-btn-icon">⚡</span>
+          <span class="fg-dock-speed-text">1.0x</span>
+          <span class="fg-key-chip">[ ]</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="toggle_fullscreen" title="Toggle Fullscreen (F)">
+          <span class="fg-dock-btn-icon">⛶</span>
+          <span class="fg-key-chip">F</span>
+        </button>
+        <button type="button" class="fg-dock-btn" data-cmd="next_episode" title="Next Episode (N or P)">
+          <span class="fg-dock-btn-icon">⏭</span>
+          <span class="fg-key-chip">N</span>
+        </button>
+        <button type="button" class="fg-dock-toggle-btn" title="Minimize / Expand Dock">
+          <span class="fg-dock-toggle-icon">${isDockCollapsed ? '+' : '─'}</span>
+        </button>
+      `;
+
+      // Block propagation so clicks on dock don't trigger player pause or ad redirects
+      ['click', 'mousedown', 'mouseup', 'dblclick', 'keydown'].forEach((evName) => {
+        dock.addEventListener(evName, (e) => {
+          e.stopPropagation();
+        }, true);
+      });
+
+      // Toggle collapse/minimize
+      const toggleCollapse = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        isDockCollapsed = !isDockCollapsed;
+        dock.classList.toggle('fg-dock-collapsed', isDockCollapsed);
+        const icon = dock.querySelector('.fg-dock-toggle-icon');
+        if (icon) icon.textContent = isDockCollapsed ? '+' : '─';
+      };
+
+      const brand = dock.querySelector('.fg-dock-brand');
+      if (brand) brand.addEventListener('click', toggleCollapse);
+
+      const collapseBtn = dock.querySelector('.fg-dock-toggle-btn');
+      if (collapseBtn) collapseBtn.addEventListener('click', toggleCollapse);
+
+      // Button click handlers
+      const buttons = dock.querySelectorAll('.fg-dock-btn');
+      buttons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const cmd = btn.getAttribute('data-cmd');
+          if (cmd) {
+            executePlayerCommand(cmd);
+            syncDockUI();
+          }
+        });
+      });
+
+      container.appendChild(dock);
+      activeDock = dock;
+
+      // Auto-hide behavior during playback
+      const resetAutoHide = () => {
+        dock.classList.remove('fg-dock-hidden');
+        if (dockHideTimeout) clearTimeout(dockHideTimeout);
+        if (activeVideo && !activeVideo.paused) {
+          dockHideTimeout = setTimeout(() => {
+            if (activeVideo && !activeVideo.paused && !dock.matches(':hover')) {
+              dock.classList.add('fg-dock-hidden');
+            }
+          }, 3200);
+        }
+      };
+
+      container.addEventListener('mousemove', resetAutoHide, { passive: true });
+      container.addEventListener('mouseenter', resetAutoHide, { passive: true });
+      dock.addEventListener('mouseenter', () => {
+        if (dockHideTimeout) clearTimeout(dockHideTimeout);
+        dock.classList.remove('fg-dock-hidden');
+      });
+    }
+
+    syncDockUI();
+  }
+
+  function syncDockUI() {
+    if (!activeDock) return;
+    const playBtnLabel = activeDock.querySelector('[data-cmd="toggle_play"] .fg-dock-btn-label');
+    const playBtnIcon = activeDock.querySelector('[data-cmd="toggle_play"] .fg-dock-btn-icon');
+    if (activeVideo) {
+      if (playBtnLabel) playBtnLabel.textContent = activeVideo.paused ? 'Play' : 'Pause';
+      if (playBtnIcon) playBtnIcon.textContent = activeVideo.paused ? '▶' : '⏸';
+
+      const speedText = activeDock.querySelector('.fg-dock-speed-text');
+      if (speedText) {
+        speedText.textContent = `${activeVideo.playbackRate.toFixed(1)}x`;
+      }
+    }
+  }
+
   // 3. Finding and Binding Video Elements
   function bindVideoEvents(video) {
     if (!video || knownVideos.has(video)) return;
@@ -197,14 +384,30 @@
 
     video.addEventListener('play', () => {
       activeVideo = video;
+      syncDockUI();
+    });
+
+    video.addEventListener('pause', () => {
+      syncDockUI();
+      if (activeDock) activeDock.classList.remove('fg-dock-hidden');
     });
 
     video.addEventListener('playing', () => {
       activeVideo = video;
+      syncDockUI();
+    });
+
+    video.addEventListener('ratechange', () => {
+      syncDockUI();
+    });
+
+    video.addEventListener('volumechange', () => {
+      syncDockUI();
     });
 
     video.addEventListener('click', () => {
       activeVideo = video;
+      syncDockUI();
     });
 
     // Double-click to toggle fullscreen
@@ -220,6 +423,7 @@
       introSkippedForCurrentVideo = false;
       outroSkippedForCurrentVideo = false;
       checkAutoPlay(video);
+      syncDockUI();
     });
 
     // Watch playback progress for auto-skip and auto-next
@@ -229,7 +433,11 @@
 
     video.addEventListener('ended', () => {
       handleVideoEnded(video);
+      syncDockUI();
     });
+
+    // Create on-screen Shortcut Dock
+    createOrUpdatePlayerDock(video);
 
     // Trigger initial autoplay check if video is already ready
     if (video.readyState >= 1) {
@@ -602,6 +810,9 @@
             }, '*');
           }
         } catch (e) {}
+      } else if (window === window.top) {
+        // Broadcast down to all child iframes if active video is inside an embed
+        broadcastCommand(data.cmd, data.value);
       }
     }
 
@@ -721,6 +932,14 @@
         break;
       }
 
+      case 'toggle_speed': {
+        const rates = [1, 1.25, 1.5, 1.75, 2, 0.75];
+        const next = rates.find(r => r > activeVideo.playbackRate + 0.05) || 1;
+        activeVideo.playbackRate = next;
+        showHud('⚡', `Speed: ${next}x`);
+        break;
+      }
+
       case 'seek_percent': {
         const pct = Math.max(0, Math.min(1, Number(value)));
         if (!isNaN(activeVideo.duration) && activeVideo.duration > 0) {
@@ -734,6 +953,8 @@
         handleVideoEnded(activeVideo);
         break;
     }
+
+    syncDockUI();
   }
 
   // Helper to check if user is typing in form/comment fields
@@ -875,5 +1096,34 @@
   // Register keyboard handler on window capture phase
   window.addEventListener('keydown', handleKeyDown, true);
 
+  // 11. Extension Popup Communication Bridge
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (!msg) return;
+
+      if (msg.action === 'execute_player_cmd') {
+        findVideos();
+        if (activeVideo) {
+          executePlayerCommand(msg.cmd, msg.value);
+          sendResponse({ success: true, target: 'local' });
+        } else {
+          broadcastCommand(msg.cmd, msg.value);
+          sendResponse({ success: true, target: 'broadcast' });
+        }
+        return true;
+      }
+
+      if (msg.action === 'toggle_shortcut_dock') {
+        playerSettings.enableShortcutDock = !!msg.enabled;
+        if (activeVideo) {
+          createOrUpdatePlayerDock(activeVideo);
+        }
+        sendResponse({ success: true });
+        return true;
+      }
+    });
+  }
+
   console.log('[FocusGuard] Video Player Suite initialized in frame:', window.location.href);
 })();
+

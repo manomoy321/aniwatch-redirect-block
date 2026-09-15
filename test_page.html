@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="player_hud.css">
   <style>
     :root {
       --bg: #0b0f19;
@@ -512,6 +513,29 @@
           <button class="btn-trigger" id="test-anchor-click">a.click()</button>
         </div>
       </div>
+
+      <!-- Feature: On-Screen Shortcut Dock Showcase -->
+      <div class="feature-card" style="grid-column: 1 / -1; background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.3);">
+        <div class="feature-card-header">
+          <div class="feature-card-icon" style="background: rgba(16, 185, 129, 0.25);">🎮</div>
+          <div>
+            <h3 class="feature-card-title">Interactive On-Screen Shortcut UI Dock</h3>
+            <p class="feature-card-desc">The floating controls bar above attaches directly to the video player! You can click any button on the dock or press keys to test seamless two-way UI sync.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <span style="font-size: 12px; font-weight: 600; color: #34d399; margin-right: 4px;">Quick Test Actions:</span>
+          <button class="btn-trigger" id="test-sc-play" style="width: auto; padding: 6px 12px; font-size: 12px;">⏯ Play / Pause [Space]</button>
+          <button class="btn-trigger" id="test-sc-rewind" style="width: auto; padding: 6px 12px; font-size: 12px;">⏪ -5s [←]</button>
+          <button class="btn-trigger" id="test-sc-forward" style="width: auto; padding: 6px 12px; font-size: 12px;">⏩ +5s [→]</button>
+          <button class="btn-trigger" id="test-sc-intro" style="width: auto; padding: 6px 12px; font-size: 12px;">⚡ Skip OP [S]</button>
+          <button class="btn-trigger" id="test-sc-outro" style="width: auto; padding: 6px 12px; font-size: 12px;">⚡ Skip ED [O]</button>
+          <button class="btn-trigger" id="test-sc-volup" style="width: auto; padding: 6px 12px; font-size: 12px;">🔊 Vol+ [↑]</button>
+          <button class="btn-trigger" id="test-sc-voldown" style="width: auto; padding: 6px 12px; font-size: 12px;">🔉 Vol- [↓]</button>
+          <button class="btn-trigger" id="test-sc-speed" style="width: auto; padding: 6px 12px; font-size: 12px;">⚡ Cycle Speed [[ ]]</button>
+          <button class="btn-trigger" id="test-sc-fs" style="width: auto; padding: 6px 12px; font-size: 12px;">⛶ Fullscreen [F]</button>
+        </div>
+      </div>
     </div>
 
     <!-- Live Event Console Log -->
@@ -756,6 +780,30 @@
       consoleLog.innerHTML = '';
       logEvent('INFO', 'Console log cleared.');
     });
+
+    // Quick Test Actions handlers (emulating keyboard / popup shortcuts)
+    const simulateKey = (key, code, keyCode) => {
+      const ev = new KeyboardEvent('keydown', {
+        key: key,
+        code: code,
+        keyCode: keyCode,
+        bubbles: true,
+        cancelable: true
+      });
+      window.dispatchEvent(ev);
+      logEvent('ACTION', `Dispatched shortcut key: ${key}`);
+    };
+
+    document.getElementById('test-sc-play').addEventListener('click', () => simulateKey(' ', 'Space', 32));
+    document.getElementById('test-sc-rewind').addEventListener('click', () => simulateKey('ArrowLeft', 'ArrowLeft', 37));
+    document.getElementById('test-sc-forward').addEventListener('click', () => simulateKey('ArrowRight', 'ArrowRight', 39));
+    document.getElementById('test-sc-intro').addEventListener('click', () => simulateKey('s', 'KeyS', 83));
+    document.getElementById('test-sc-outro').addEventListener('click', () => simulateKey('o', 'KeyO', 79));
+    document.getElementById('test-sc-volup').addEventListener('click', () => simulateKey('ArrowUp', 'ArrowUp', 38));
+    document.getElementById('test-sc-voldown').addEventListener('click', () => simulateKey('ArrowDown', 'ArrowDown', 40));
+    document.getElementById('test-sc-speed').addEventListener('click', () => simulateKey(']', 'BracketRight', 221));
+    document.getElementById('test-sc-fs').addEventListener('click', () => simulateKey('f', 'KeyF', 70));
   </script>
+  <script src="player_controller.js"></script>
 </body>
 </html>

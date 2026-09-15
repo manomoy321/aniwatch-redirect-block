@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleSkipIntro = document.getElementById('toggle-skip-intro');
   const toggleSkipOutro = document.getElementById('toggle-skip-outro');
   const toggleAutoNext = document.getElementById('toggle-autonext');
+  const toggleDock = document.getElementById('toggle-dock');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
 
@@ -43,7 +44,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoPlay: true,
     enableAutoNext: true,
     enableAutoSkipIntro: true,
-    enableAutoSkipOutro: true
+    enableAutoSkipOutro: true,
+    enableShortcutDock: true
   };
 
   // 1. Identify active tab domain
@@ -73,7 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     [
       'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
       'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
-      'enableAutoSkipIntro', 'enableAutoSkipOutro'
+      'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableShortcutDock'
     ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
@@ -90,6 +92,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.enableAutoNext !== undefined) appState.enableAutoNext = data.enableAutoNext;
       if (data.enableAutoSkipIntro !== undefined) appState.enableAutoSkipIntro = data.enableAutoSkipIntro;
       if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
+      if (data.enableShortcutDock !== undefined) appState.enableShortcutDock = data.enableShortcutDock;
 
       renderUI();
     }
@@ -140,6 +143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (toggleSkipIntro) toggleSkipIntro.checked = appState.enableAutoSkipIntro;
     if (toggleSkipOutro) toggleSkipOutro.checked = appState.enableAutoSkipOutro;
     if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
+    if (toggleDock) toggleDock.checked = appState.enableShortcutDock;
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -230,6 +234,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.storage.local.set({ enableAutoNext: appState.enableAutoNext });
     });
   }
+
+  // Toggle On-Screen Shortcut Dock
+  if (toggleDock) {
+    toggleDock.addEventListener('change', () => {
+      appState.enableShortcutDock = toggleDock.checked;
+      chrome.storage.local.set({ enableShortcutDock: appState.enableShortcutDock });
+      // Notify active tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: 'toggle_shortcut_dock',
+            enabled: appState.enableShortcutDock
+          }).catch(() => {});
+        }
+      });
+    });
+  }
+
+  // Handle interactive shortcut row clicks in popup UI
+  const shortcutRows = document.querySelectorAll('.shortcut-row.interactive');
+  shortcutRows.forEach((row) => {
+    row.addEventListener('click', () => {
+      const cmd = row.getAttribute('data-cmd');
+      if (!cmd) return;
+
+      // Provide instant tactile visual feedback on the clicked row
+      const tag = row.querySelector('.shortcut-run-tag');
+      const originalText = tag ? tag.textContent : '';
+      if (tag) {
+        tag.textContent = 'Triggered! ✓';
+        tag.style.background = 'rgba(16, 185, 129, 0.5)';
+        tag.style.color = '#ffffff';
+        setTimeout(() => {
+          tag.textContent = originalText;
+          tag.style.background = '';
+          tag.style.color = '';
+        }, 700);
+      }
+
+      // Send command to active tab's video player
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: 'execute_player_cmd',
+            cmd: cmd
+          }).catch(() => {});
+        }
+      });
+    });
+  });
 
   // Toggle Shortcuts Matrix Panel
   if (btnToggleShortcuts && shortcutsPanel) {
