@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FocusGuard Test Lab - Aggressive Redirect Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: rgba(22, 30, 49, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #10b981;
+      --accent-cyan: #06b6d4;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(circle at 15% 10%, rgba(16, 185, 129, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 30%, rgba(6, 182, 212, 0.1) 0%, transparent 50%);
+      color: var(--text);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      padding: 30px 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      max-width: 900px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+
+    /* Player Container Mockup */
+    .player-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    }
+
+    .player-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(11, 15, 25, 0.5);
+    }
+
+    .player-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .player-container {
+      position: relative;
+      width: 100%;
+      height: 380px;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .player-bg {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.85)), radial-gradient(circle at center, #1e293b 0%, #020617 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+    }
+
+    .play-btn {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+      z-index: 2;
+    }
+
+    .play-btn:hover {
+      transform: scale(1.08);
+      box-shadow: 0 0 40px rgba(16, 185, 129, 0.6);
+    }
+
+    .play-btn svg {
+      width: 32px;
+      height: 32px;
+      fill: #0b0f19;
+      transform: translateX(2px);
+    }
+
+    /* Invisible Clickjacking Overlay (Simulated Ad Layer) */
+    #fake-clickjack-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      z-index: 999;
+      cursor: pointer;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-start;
+      padding: 16px;
+      pointer-events: auto;
+    }
+
+    .overlay-hint-tag {
+      background: rgba(239, 68, 68, 0.85);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      opacity: 0.8;
+      pointer-events: none;
+    }
+
+    /* Attack Trigger Panel */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    .attack-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .attack-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+
+    .attack-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .btn-trigger {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #f1f5f9;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-trigger:hover {
+      background: rgba(51, 65, 85, 0.9);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Test Activity Console */
+    .console-section {
+      background: #060911;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .console-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .console-title {
+      color: #94a3b8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .console-log {
+      max-height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .log-item {
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-time { color: #64748b; }
+    .log-info { color: #38bdf8; }
+    .log-warn { color: #facc15; }
+    .log-blocked { color: #34d399; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">
+        <span>🛡️</span> FocusGuard Test Environment
+      </div>
+      <h1>Aggressive Redirect & Popup Simulator</h1>
+      <p class="subtitle">Verify FocusGuard blocking redirects, closing popup tabs, and killing invisible overlays.</p>
+    </header>
+
+    <!-- Simulated Video Player with Overlay -->
+    <div class="player-section">
+      <div class="player-header">
+        <span class="player-title">
+          <span>🎬</span> Episode 01 - Streaming Player (Simulated)
+        </span>
+        <button class="btn-trigger" id="btn-rearm-overlay" style="width: auto; padding: 4px 10px; font-size: 11px;">
+          Spawn Ad Overlay
+        </button>
+      </div>
+
+      <div class="player-container" id="player-container">
+        <!-- Background Mockup -->
+        <div class="player-bg">
+          <button class="play-btn" id="player-play-btn" title="Click to Play">
+            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+        </div>
+
+        <!-- Simulated Clickjack Overlay -->
+        <div id="fake-clickjack-overlay">
+          <span class="overlay-hint-tag">Simulated Clickjack Overlay (Click me!)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redirect Attack Simulator Controls -->
+    <div class="controls-grid">
+      <!-- Test 1: window.open -->
+      <div class="attack-card">
+        <div>
+          <h3 class="attack-title">1. Rogue window.open()</h3>
+          <p class="attack-desc">Simulates a script calling <code>window.open(...)</code> to spawn an unwanted popup or pop-under tab.</p>
+        </div>
+        <button class="btn-trigger" id="test-window-open">
+          Trigger window.open()
+        </button>
+      </div>
+
+      <!-- Test 2: Invisible Anchor Hijack -->
+      <div class="attack-card">
+        <div>
+          <h3 class="attack-title">2. Programmatic Anchor (.click)</h3>
+          <p class="attack-desc">Synthesizes a detached <code>&lt;a target="_blank"&gt;</code> element in memory and triggers <code>.click()</code>.</p>
+        </div>
+        <button class="btn-trigger" id="test-anchor-click">
+          Trigger a.click() Hijack
+        </button>
+      </div>
+
+      <!-- Test 3: Direct External Link -->
+      <div class="attack-card">
+        <div>
+          <h3 class="attack-title">3. External Link Redirect</h3>
+          <p class="attack-desc">Simulates clicking an external ad link with <code>target="_blank"</code>.</p>
+        </div>
+        <a href="https://example-external-ad-network.com/redirect" target="_blank" id="test-player-link" style="text-decoration: none;">
+          <button type="button" class="btn-trigger">
+            Click External Ad Link
+          </button>
+        </a>
+      </div>
+    </div>
+
+    <!-- Live Event Log -->
+    <div class="console-section">
+      <div class="console-header">
+        <span class="console-title">Live Simulator Event Log</span>
+        <button class="btn-trigger" id="btn-clear-console" style="width: auto; padding: 2px 8px; font-size: 11px;">Clear Log</button>
+      </div>
+      <div class="console-log" id="console-log">
+        <div class="log-item">
+          <span class="log-time">[Init]</span>
+          <span class="log-info">Ready for testing. Click the player or test triggers above.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const consoleLog = document.getElementById('console-log');
+    const overlay = document.getElementById('fake-clickjack-overlay');
+    const playBtn = document.getElementById('player-play-btn');
+
+    function logEvent(type, message) {
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = 'log-item';
+      let typeClass = 'log-info';
+      if (type === 'BLOCKED') typeClass = 'log-blocked';
+      if (type === 'ATTEMPT') typeClass = 'log-warn';
+
+      div.innerHTML = `<span class="log-time">[${time}]</span> <span class="${typeClass}">[${type}]</span> <span>${message}</span>`;
+      consoleLog.appendChild(div);
+      consoleLog.scrollTop = consoleLog.scrollHeight;
+    }
+
+    // Listen for FocusGuard interception events
+    window.addEventListener('__focusguard_intercept__', (e) => {
+      const detail = e.detail || {};
+      logEvent('BLOCKED', `FocusGuard intercepted ${detail.type}: ${detail.url || 'blank'}`);
+    });
+
+    // 1. Overlay click handler
+    if (overlay) {
+      overlay.addEventListener('click', (e) => {
+        logEvent('ATTEMPT', 'Overlay clicked! Attempting to launch ad popup...');
+        window.open('https://example-malicious-ad-domain.com/popunder', '_blank');
+      });
+    }
+
+    // Re-arm overlay button
+    document.getElementById('btn-rearm-overlay').addEventListener('click', () => {
+      if (!document.getElementById('fake-clickjack-overlay')) {
+        const newOverlay = document.createElement('div');
+        newOverlay.id = 'fake-clickjack-overlay';
+        newOverlay.innerHTML = '<span class="overlay-hint-tag">Simulated Clickjack Overlay (Click me!)</span>';
+        newOverlay.addEventListener('click', () => {
+          logEvent('ATTEMPT', 'Overlay clicked! Attempting to launch ad popup...');
+          window.open('https://example-malicious-ad-domain.com/popunder', '_blank');
+        });
+        document.getElementById('player-container').appendChild(newOverlay);
+        logEvent('INFO', 'Spawned a new transparent clickjack overlay layer.');
+      } else {
+        logEvent('INFO', 'Overlay is already active on the player.');
+      }
+    });
+
+    // 2. Play button click
+    playBtn.addEventListener('click', () => {
+      logEvent('INFO', 'Play button clicked successfully! Video starting...');
+    });
+
+    // 3. Test Button 1: window.open
+    document.getElementById('test-window-open').addEventListener('click', () => {
+      logEvent('ATTEMPT', 'Calling window.open("https://popunder-traffic.net", "_blank")...');
+      const win = window.open('https://popunder-traffic.net', '_blank');
+      if (win && !win.closed) {
+        logEvent('INFO', 'window.open safely stubbed by FocusGuard.');
+      }
+    });
+
+    // 4. Test Button 2: Programmatic Anchor Click
+    document.getElementById('test-anchor-click').addEventListener('click', () => {
+      logEvent('ATTEMPT', 'Triggering programmatic anchor click in background...');
+      const a = document.createElement('a');
+      a.href = 'https://affiliate-redirect-tracker.com/offer';
+      a.target = '_blank';
+      a.style.display = 'none';
+      a.click();
+    });
+
+    // 5. Test Button 3: External Link Click
+    document.getElementById('test-player-link').addEventListener('click', (e) => {
+      logEvent('ATTEMPT', 'Direct external target="_blank" link clicked.');
+    });
+
+    // Clear console
+    document.getElementById('btn-clear-console').addEventListener('click', () => {
+      consoleLog.innerHTML = '';
+      logEvent('INFO', 'Console log cleared.');
+    });
+  </script>
+</body>
+</html>
