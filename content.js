@@ -165,9 +165,9 @@
 
     // Never treat legitimate player controls, buttons, sliders, or video elements as overlays!
     const tag = el.tagName ? el.tagName.toUpperCase() : '';
-    if (tag === 'VIDEO' || tag === 'AUDIO' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT') return false;
+    if (tag === 'VIDEO' || tag === 'AUDIO' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT' || tag === 'SVG' || tag === 'PATH' || tag === 'LABEL') return false;
 
-    if (el.closest && el.closest('.jw-controls, .jw-controlbar, .vjs-control-bar, .player-controls, [class*="control-bar"], [class*="controls"], [class*="player-ui"], .controls, .control-bar, #controls')) {
+    if (el.closest && el.closest('.jw-controls, .jw-controlbar, .jw-slider, .jw-knob, .vjs-control-bar, .vjs-control, .player-controls, [class*="control-bar"], [class*="controls"], [class*="player-ui"], [class*="progress"], [class*="slider"], .controls, .control-bar, #controls, [role="button"], [role="slider"]')) {
       return false;
     }
 
@@ -276,29 +276,32 @@
     }
   }, true); // useCapture = true guarantees FocusGuard executes before page handlers
 
-  // 3. Iframe Fullscreen Permissions Enforcer
-  // Guarantees embedded video players inside iframes (MegaCloud, RapidCloud, StreamTape, etc.)
-  // have full browser permission delegation to enter fullscreen mode.
+  // 3. Modern Iframe Permissions Enforcer
+  // Grants fullscreen, autoplay, and media permissions via standard W3C Permissions Policy ('allow').
+  // Strips legacy 'allowfullscreen' attributes to prevent Chromium precedence warnings.
   function enableIframeFullscreen(ifr) {
     if (!ifr || ifr.nodeType !== 1) return;
     try {
-      ifr.setAttribute('allowfullscreen', 'true');
-      ifr.setAttribute('webkitallowfullscreen', 'true');
-      ifr.setAttribute('mozallowfullscreen', 'true');
+      // Remove legacy boolean attributes so Chromium never warns:
+      // "Allow attribute will take precedence over 'allowfullscreen'."
+      if (ifr.hasAttribute('allowfullscreen')) ifr.removeAttribute('allowfullscreen');
+      if (ifr.hasAttribute('webkitallowfullscreen')) ifr.removeAttribute('webkitallowfullscreen');
+      if (ifr.hasAttribute('mozallowfullscreen')) ifr.removeAttribute('mozallowfullscreen');
 
-      let allow = ifr.getAttribute('allow') || '';
+      const currentAllow = ifr.getAttribute('allow') || '';
       const neededPolicies = ['fullscreen', 'autoplay', 'encrypted-media', 'picture-in-picture'];
+      let policies = currentAllow ? currentAllow.split(';').map(s => s.trim()).filter(Boolean) : [];
       let modified = false;
 
       for (const policy of neededPolicies) {
-        if (!allow.includes(policy)) {
-          allow = (allow ? allow + '; ' : '') + policy;
+        if (!policies.some(p => p.startsWith(policy))) {
+          policies.push(`${policy} *`);
           modified = true;
         }
       }
 
-      if (modified) {
-        ifr.setAttribute('allow', allow);
+      if (modified || !currentAllow) {
+        ifr.setAttribute('allow', policies.join('; '));
       }
     } catch (e) {}
   }
