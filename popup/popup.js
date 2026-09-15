@@ -26,7 +26,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleSkipIntro = document.getElementById('toggle-skip-intro');
   const toggleSkipOutro = document.getElementById('toggle-skip-outro');
   const toggleAutoNext = document.getElementById('toggle-autonext');
-  const toggleDock = document.getElementById('toggle-dock');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
 
@@ -44,8 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoPlay: true,
     enableAutoNext: true,
     enableAutoSkipIntro: true,
-    enableAutoSkipOutro: true,
-    enableShortcutDock: true
+    enableAutoSkipOutro: true
   };
 
   // 1. Identify active tab domain
@@ -75,7 +73,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     [
       'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
       'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
-      'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableShortcutDock'
+      'enableAutoSkipIntro', 'enableAutoSkipOutro'
     ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
@@ -92,7 +90,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.enableAutoNext !== undefined) appState.enableAutoNext = data.enableAutoNext;
       if (data.enableAutoSkipIntro !== undefined) appState.enableAutoSkipIntro = data.enableAutoSkipIntro;
       if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
-      if (data.enableShortcutDock !== undefined) appState.enableShortcutDock = data.enableShortcutDock;
 
       renderUI();
     }
@@ -143,7 +140,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (toggleSkipIntro) toggleSkipIntro.checked = appState.enableAutoSkipIntro;
     if (toggleSkipOutro) toggleSkipOutro.checked = appState.enableAutoSkipOutro;
     if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
-    if (toggleDock) toggleDock.checked = appState.enableShortcutDock;
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -235,22 +231,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Toggle On-Screen Shortcut Dock
-  if (toggleDock) {
-    toggleDock.addEventListener('change', () => {
-      appState.enableShortcutDock = toggleDock.checked;
-      chrome.storage.local.set({ enableShortcutDock: appState.enableShortcutDock });
-      // Notify active tab
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0] && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: 'toggle_shortcut_dock',
-            enabled: appState.enableShortcutDock
-          }).catch(() => {});
-        }
-      });
-    });
-  }
 
   // Handle interactive shortcut row clicks in popup UI
   const shortcutRows = document.querySelectorAll('.shortcut-row.interactive');

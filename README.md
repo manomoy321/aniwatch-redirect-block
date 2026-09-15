@@ -15,20 +15,9 @@ A powerful Manifest V3 browser extension engineered to neutralize aggressive cli
 ## ✨ Features
 
 ### 🎬 Video Player Suite (Aniwatch & Streaming Media)
-* 🎮 **Interactive On-Screen Shortcut UI Dock**:
-  * Attaches directly to the video player as an auto-hiding frosted glassmorphic toolbar with glowing emerald accents.
-  * Every button features an on-screen hotkey chip so you can click the UI directly or press the keys:
-    * `⏯ Play` (`[Space]`)
-    * `⏪ -5s` (`[←]`)
-    * `⏩ +5s` (`[→]`)
-    * `⚡ Skip OP` (`[S]`)
-    * `⚡ Skip ED` (`[O]`)
-    * `🔉 / 🔊 Vol` (`[↓ / ↑]`)
-    * `⚡ Speed` (`[[ / ]]`)
-    * `⛶ Fullscreen` (`[F]`)
-    * `⏭ Next Ep` (`[N]`)
-  * Auto-hides after 3.2 seconds of mouse inactivity during playback and reappears smoothly on hover.
-  * Click the minimize toggle (`─` / `+`) to collapse the dock into a tiny floating shield pill whenever desired.
+* 🎛️ **Native Player Controls Priority**:
+  * Unobstructed playback: No floating overlay dock covers or interferes with the site's existing player controls (scrubber, volume slider, settings, play button, and skip buttons).
+  * Existing player controls are protected from clickjacking filters so clicking native buttons is always immediate and redirect-free.
 * 🖱️ **Interactive Popup Shortcuts Matrix**:
   * Every shortcut listed inside the extension popup is an interactive button. Clicking any row in the popup immediately controls playback on the active video tab.
 * ⌨️ **Universal Keyboard Controls**: Cross-frame keyboard shortcuts that work even when focus is on the host page or outer iframe:

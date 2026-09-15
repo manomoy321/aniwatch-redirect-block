@@ -14,7 +14,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get([
     'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
     'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
-    'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableShortcutDock', 'skipIntroSeconds', 'seekSeconds'
+    'enableAutoSkipIntro', 'enableAutoSkipOutro', 'skipIntroSeconds', 'seekSeconds'
   ], (res) => {
     const defaults = {
       enabled: res.enabled !== undefined ? res.enabled : true,
@@ -30,7 +30,6 @@ chrome.runtime.onInstalled.addListener(() => {
       enableAutoNext: res.enableAutoNext !== undefined ? res.enableAutoNext : true,
       enableAutoSkipIntro: res.enableAutoSkipIntro !== undefined ? res.enableAutoSkipIntro : true,
       enableAutoSkipOutro: res.enableAutoSkipOutro !== undefined ? res.enableAutoSkipOutro : true,
-      enableShortcutDock: res.enableShortcutDock !== undefined ? res.enableShortcutDock : true,
       skipIntroSeconds: res.skipIntroSeconds !== undefined ? res.skipIntroSeconds : 85,
       seekSeconds: res.seekSeconds !== undefined ? res.seekSeconds : 5
     };

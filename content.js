@@ -163,6 +163,14 @@
   function isClickjackOverlay(el) {
     if (!el || el === document.body || el === document.documentElement) return false;
 
+    // Never treat legitimate player controls, buttons, sliders, or video elements as overlays!
+    const tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'VIDEO' || tag === 'AUDIO' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'SELECT') return false;
+
+    if (el.closest && el.closest('.jw-controls, .jw-controlbar, .vjs-control-bar, .player-controls, [class*="control-bar"], [class*="controls"], [class*="player-ui"], .controls, .control-bar, #controls')) {
+      return false;
+    }
+
     try {
       const style = window.getComputedStyle(el);
       const pos = style.position;
