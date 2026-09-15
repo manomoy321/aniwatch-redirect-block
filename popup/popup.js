@@ -19,6 +19,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const whitelistBtnText = document.getElementById('whitelist-btn-text');
   const btnResetStats = document.getElementById('btn-reset-stats');
 
+  // Video Player Suite DOM Elements
+  const toggleKeyboard = document.getElementById('toggle-keyboard');
+  const toggleFullscreen = document.getElementById('toggle-fullscreen');
+  const toggleAutoplay = document.getElementById('toggle-autoplay');
+  const toggleSkipIntro = document.getElementById('toggle-skip-intro');
+  const toggleSkipOutro = document.getElementById('toggle-skip-outro');
+  const toggleAutoNext = document.getElementById('toggle-autonext');
+  const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
+  const shortcutsPanel = document.getElementById('shortcuts-panel');
+
   let currentHost = '';
   let appState = {
     enabled: true,
@@ -26,7 +36,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     blockOverlays: true,
     whitelist: [],
     totalBlocked: 0,
-    siteStats: {}
+    siteStats: {},
+    // Video Player Suite State
+    enableKeyboardControls: true,
+    enableFullscreenFix: true,
+    enableAutoPlay: true,
+    enableAutoNext: true,
+    enableAutoSkipIntro: true,
+    enableAutoSkipOutro: true
   };
 
   // 1. Identify active tab domain
@@ -53,7 +70,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 2. Load stored settings and stats
   chrome.storage.local.get(
-    ['enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats'],
+    [
+      'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
+      'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
+      'enableAutoSkipIntro', 'enableAutoSkipOutro'
+    ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
       if (data.mode !== undefined) appState.mode = data.mode;
@@ -61,6 +82,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (Array.isArray(data.whitelist)) appState.whitelist = data.whitelist;
       if (data.totalBlocked !== undefined) appState.totalBlocked = data.totalBlocked;
       if (data.siteStats !== undefined) appState.siteStats = data.siteStats;
+
+      // Player suite states
+      if (data.enableKeyboardControls !== undefined) appState.enableKeyboardControls = data.enableKeyboardControls;
+      if (data.enableFullscreenFix !== undefined) appState.enableFullscreenFix = data.enableFullscreenFix;
+      if (data.enableAutoPlay !== undefined) appState.enableAutoPlay = data.enableAutoPlay;
+      if (data.enableAutoNext !== undefined) appState.enableAutoNext = data.enableAutoNext;
+      if (data.enableAutoSkipIntro !== undefined) appState.enableAutoSkipIntro = data.enableAutoSkipIntro;
+      if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
 
       renderUI();
     }
@@ -103,6 +132,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Feature toggles
     toggleOverlays.checked = appState.blockOverlays;
+
+    // Video Player Suite Toggles
+    if (toggleKeyboard) toggleKeyboard.checked = appState.enableKeyboardControls;
+    if (toggleFullscreen) toggleFullscreen.checked = appState.enableFullscreenFix;
+    if (toggleAutoplay) toggleAutoplay.checked = appState.enableAutoPlay;
+    if (toggleSkipIntro) toggleSkipIntro.checked = appState.enableAutoSkipIntro;
+    if (toggleSkipOutro) toggleSkipOutro.checked = appState.enableAutoSkipOutro;
+    if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -150,6 +187,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     appState.blockOverlays = toggleOverlays.checked;
     chrome.storage.local.set({ blockOverlays: appState.blockOverlays });
   });
+
+  // Video Player Suite Event Listeners
+  if (toggleKeyboard) {
+    toggleKeyboard.addEventListener('change', () => {
+      appState.enableKeyboardControls = toggleKeyboard.checked;
+      chrome.storage.local.set({ enableKeyboardControls: appState.enableKeyboardControls });
+    });
+  }
+
+  if (toggleFullscreen) {
+    toggleFullscreen.addEventListener('change', () => {
+      appState.enableFullscreenFix = toggleFullscreen.checked;
+      chrome.storage.local.set({ enableFullscreenFix: appState.enableFullscreenFix });
+    });
+  }
+
+  if (toggleAutoplay) {
+    toggleAutoplay.addEventListener('change', () => {
+      appState.enableAutoPlay = toggleAutoplay.checked;
+      chrome.storage.local.set({ enableAutoPlay: appState.enableAutoPlay });
+    });
+  }
+
+  if (toggleSkipIntro) {
+    toggleSkipIntro.addEventListener('change', () => {
+      appState.enableAutoSkipIntro = toggleSkipIntro.checked;
+      chrome.storage.local.set({ enableAutoSkipIntro: appState.enableAutoSkipIntro });
+    });
+  }
+
+  if (toggleSkipOutro) {
+    toggleSkipOutro.addEventListener('change', () => {
+      appState.enableAutoSkipOutro = toggleSkipOutro.checked;
+      chrome.storage.local.set({ enableAutoSkipOutro: appState.enableAutoSkipOutro });
+    });
+  }
+
+  if (toggleAutoNext) {
+    toggleAutoNext.addEventListener('change', () => {
+      appState.enableAutoNext = toggleAutoNext.checked;
+      chrome.storage.local.set({ enableAutoNext: appState.enableAutoNext });
+    });
+  }
+
+  // Toggle Shortcuts Matrix Panel
+  if (btnToggleShortcuts && shortcutsPanel) {
+    btnToggleShortcuts.addEventListener('click', () => {
+      const isHidden = shortcutsPanel.style.display === 'none' || !shortcutsPanel.style.display;
+      shortcutsPanel.style.display = isHidden ? 'flex' : 'none';
+      btnToggleShortcuts.style.background = isHidden ? 'rgba(16, 185, 129, 0.3)' : '';
+    });
+  }
 
   // Whitelist toggle for current domain
   btnToggleWhitelist.addEventListener('click', () => {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FocusGuard Test Lab - Aggressive Redirect Simulator</title>
+  <title>FocusGuard Test Lab - Aggressive Redirect & Video Suite Simulator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,6 +15,7 @@
       --accent: #10b981;
       --accent-cyan: #06b6d4;
       --danger: #ef4444;
+      --warning: #f59e0b;
       --text: #f8fafc;
       --text-muted: #94a3b8;
     }
@@ -35,7 +36,7 @@
     }
 
     .container {
-      max-width: 900px;
+      max-width: 960px;
       width: 100%;
       display: flex;
       flex-direction: column;
@@ -76,6 +77,40 @@
       font-size: 15px;
     }
 
+    /* Tabs for testing sections */
+    .test-tabs {
+      display: flex;
+      gap: 10px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 4px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn.active {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+
     /* Player Container Mockup */
     .player-section {
       background: var(--card);
@@ -104,6 +139,16 @@
       gap: 8px;
     }
 
+    .player-status-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 4px 10px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 6px;
+      color: #34d399;
+    }
+
     .player-container {
       position: relative;
       width: 100%;
@@ -116,44 +161,48 @@
       overflow: hidden;
     }
 
-    .player-bg {
+    /* Actual HTML5 Video Element */
+    #test-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+    }
+
+    /* Video Player Overlay Simulation */
+    .player-overlay-actions {
       position: absolute;
-      inset: 0;
-      background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.85)), radial-gradient(circle at center, #1e293b 0%, #020617 100%);
+      top: 16px;
+      right: 16px;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1;
+      gap: 10px;
+      z-index: 50;
     }
 
-    .play-btn {
-      width: 76px;
-      height: 76px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    /* Dynamic Skip Buttons (Spawned via Test Controls) */
+    .sim-skip-btn {
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid #06b6d4;
+      box-shadow: 0 4px 14px rgba(6, 182, 212, 0.4);
+      color: #38bdf8;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 16px;
+      border-radius: 8px;
       cursor: pointer;
-      box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
-      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
-      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      animation: pulseIn 0.3s ease-out;
     }
 
-    .play-btn:hover {
-      transform: scale(1.08);
-      box-shadow: 0 0 40px rgba(16, 185, 129, 0.6);
+    @keyframes pulseIn {
+      from { transform: scale(0.9); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
     }
 
-    .play-btn svg {
-      width: 32px;
-      height: 32px;
-      fill: #0b0f19;
-      transform: translateX(2px);
-    }
-
-    /* Invisible Clickjacking Overlay (Simulated Ad Layer) */
+    /* Invisible Clickjacking Overlay */
     #fake-clickjack-overlay {
       position: absolute;
       top: 0;
@@ -183,14 +232,14 @@
       pointer-events: none;
     }
 
-    /* Attack Trigger Panel */
+    /* Controls Grid */
     .controls-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 16px;
     }
 
-    .attack-card {
+    .feature-card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
@@ -201,14 +250,31 @@
       gap: 14px;
     }
 
-    .attack-title {
+    .feature-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .feature-card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      font-size: 16px;
+    }
+
+    .feature-card-title {
       font-size: 15px;
       font-weight: 600;
       color: #fff;
-      margin-bottom: 4px;
     }
 
-    .attack-desc {
+    .feature-card-desc {
       font-size: 12px;
       color: var(--text-muted);
       line-height: 1.4;
@@ -235,6 +301,30 @@
     .btn-trigger:hover {
       background: rgba(51, 65, 85, 0.9);
       border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .btn-trigger.active {
+      background: rgba(16, 185, 129, 0.25);
+      border-color: rgba(16, 185, 129, 0.5);
+      color: #34d399;
+    }
+
+    /* Test input field to verify keyboard exclusion */
+    .typing-test-box {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .typing-test-box:focus {
+      border-color: var(--accent);
     }
 
     /* Test Activity Console */
@@ -264,7 +354,7 @@
     }
 
     .console-log {
-      max-height: 180px;
+      max-height: 200px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -279,37 +369,51 @@
     .log-time { color: #64748b; }
     .log-info { color: #38bdf8; }
     .log-warn { color: #facc15; }
+    .log-action { color: #a855f7; font-weight: 600; }
     .log-blocked { color: #34d399; font-weight: 600; }
+
+    /* Shortcuts matrix display */
+    .key-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #38bdf8;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <div class="badge">
-        <span>🛡️</span> FocusGuard Test Environment
+        <span>🛡️</span> FocusGuard Video & Redirect Test Lab
       </div>
-      <h1>Aggressive Redirect & Popup Simulator</h1>
-      <p class="subtitle">Verify FocusGuard blocking redirects, closing popup tabs, and killing invisible overlays.</p>
+      <h1>Aggressive Redirect & Video Player Suite Simulator</h1>
+      <p class="subtitle">Test keyboard shortcuts (Space, Arrows, F, M, S, O), auto-play, skip intro/outro, and redirect blocking.</p>
     </header>
 
-    <!-- Simulated Video Player with Overlay -->
-    <div class="player-section">
+    <!-- Simulated Video Player Section -->
+    <div class="player-section" id="player-wrapper">
       <div class="player-header">
         <span class="player-title">
-          <span>🎬</span> Episode 01 - Streaming Player (Simulated)
+          <span>🎬</span> Episode 01 - Jujutsu Kaisen (Simulated Player)
         </span>
-        <button class="btn-trigger" id="btn-rearm-overlay" style="width: auto; padding: 4px 10px; font-size: 11px;">
-          Spawn Ad Overlay
-        </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="player-status-pill" id="player-status-display">PAUSED • 00:00 / 05:00 • VOL: 100%</span>
+          <button class="btn-trigger" id="btn-rearm-overlay" style="width: auto; padding: 4px 10px; font-size: 11px;">
+            Spawn Ad Overlay
+          </button>
+        </div>
       </div>
 
       <div class="player-container" id="player-container">
-        <!-- Background Mockup -->
-        <div class="player-bg">
-          <button class="play-btn" id="player-play-btn" title="Click to Play">
-            <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </button>
-        </div>
+        <!-- Live HTML5 Video Element with Canvas Loop -->
+        <video id="test-video" playsinline loop></video>
+
+        <!-- Dynamic Skip Intro/Outro Action Layer -->
+        <div class="player-overlay-actions" id="player-overlay-actions"></div>
 
         <!-- Simulated Clickjack Overlay -->
         <div id="fake-clickjack-overlay">
@@ -318,54 +422,108 @@
       </div>
     </div>
 
-    <!-- Redirect Attack Simulator Controls -->
+    <!-- Video Player Test Controls Grid -->
     <div class="controls-grid">
-      <!-- Test 1: window.open -->
-      <div class="attack-card">
-        <div>
-          <h3 class="attack-title">1. Rogue window.open()</h3>
-          <p class="attack-desc">Simulates a script calling <code>window.open(...)</code> to spawn an unwanted popup or pop-under tab.</p>
+      <!-- Feature 1: Skip Intro Test -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">⚡</div>
+          <div>
+            <h3 class="feature-card-title">1. Auto Skip Intro (OP)</h3>
+            <p class="feature-card-desc">Spawns a standard <code>#skip-intro</code> button. FocusGuard should instantly click it and show HUD.</p>
+          </div>
         </div>
-        <button class="btn-trigger" id="test-window-open">
-          Trigger window.open()
+        <button class="btn-trigger" id="btn-test-skip-intro">
+          Spawn "Skip Intro" Button
         </button>
       </div>
 
-      <!-- Test 2: Invisible Anchor Hijack -->
-      <div class="attack-card">
-        <div>
-          <h3 class="attack-title">2. Programmatic Anchor (.click)</h3>
-          <p class="attack-desc">Synthesizes a detached <code>&lt;a target="_blank"&gt;</code> element in memory and triggers <code>.click()</code>.</p>
+      <!-- Feature 2: Skip Outro Test -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">⚡</div>
+          <div>
+            <h3 class="feature-card-title">2. Auto Skip Outro (ED)</h3>
+            <p class="feature-card-desc">Spawns a <code>#skip-outro</code> ending song button. FocusGuard should auto-click it immediately.</p>
+          </div>
         </div>
-        <button class="btn-trigger" id="test-anchor-click">
-          Trigger a.click() Hijack
+        <button class="btn-trigger" id="btn-test-skip-outro">
+          Spawn "Skip Outro" Button
         </button>
       </div>
 
-      <!-- Test 3: Direct External Link -->
-      <div class="attack-card">
-        <div>
-          <h3 class="attack-title">3. External Link Redirect</h3>
-          <p class="attack-desc">Simulates clicking an external ad link with <code>target="_blank"</code>.</p>
+      <!-- Feature 3: Next Episode Simulation -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">⏭️</div>
+          <div>
+            <h3 class="feature-card-title">3. Auto Next Episode</h3>
+            <p class="feature-card-desc">Simulates video completion to trigger FocusGuard's 3-second next episode countdown toast.</p>
+          </div>
         </div>
-        <a href="https://example-external-ad-network.com/redirect" target="_blank" id="test-player-link" style="text-decoration: none;">
-          <button type="button" class="btn-trigger">
-            Click External Ad Link
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-trigger" id="btn-test-end-video">
+            Simulate Video End
           </button>
-        </a>
+          <button class="btn-next btn-trigger" id="sim-next-ep-btn" style="display: none;">
+            Episode 02
+          </button>
+        </div>
+      </div>
+
+      <!-- Feature 4: Keyboard Shortcuts Test -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">⌨️</div>
+          <div>
+            <h3 class="feature-card-title">4. Keyboard Shortcuts</h3>
+            <p class="feature-card-desc">Press <span class="key-badge">Space</span> to Play/Pause, <span class="key-badge">←/→</span> to Seek, <span class="key-badge">↑/↓</span> for Volume, <span class="key-badge">F</span> for Fullscreen, <span class="key-badge">M</span> to Mute, <span class="key-badge">S/O</span> to Skip.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-trigger" id="btn-toggle-play-test">Toggle Play / Pause</button>
+          <button class="btn-trigger" id="btn-test-fs">Toggle Fullscreen (F)</button>
+        </div>
+      </div>
+
+      <!-- Feature 5: Typing Safety Exclusion Test -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">💬</div>
+          <div>
+            <h3 class="feature-card-title">5. Typing Safety Exclusion</h3>
+            <p class="feature-card-desc">Type inside this input: pressing Space or M must NOT pause/mute the video!</p>
+          </div>
+        </div>
+        <input type="text" class="typing-test-box" placeholder="Type comments here (shortcuts won't trigger)..." id="test-typing-input">
+      </div>
+
+      <!-- Feature 6: Redirect Vectors -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🛡️</div>
+          <div>
+            <h3 class="feature-card-title">6. Redirect Protections</h3>
+            <p class="feature-card-desc">Verify rogue <code>window.open</code> and synthetic <code>a.click()</code> blocks.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-trigger" id="test-window-open">window.open()</button>
+          <button class="btn-trigger" id="test-anchor-click">a.click()</button>
+        </div>
       </div>
     </div>
 
-    <!-- Live Event Log -->
+    <!-- Live Event Console Log -->
     <div class="console-section">
       <div class="console-header">
-        <span class="console-title">Live Simulator Event Log</span>
+        <span class="console-title">Live Test Lab Activity Log</span>
         <button class="btn-trigger" id="btn-clear-console" style="width: auto; padding: 2px 8px; font-size: 11px;">Clear Log</button>
       </div>
       <div class="console-log" id="console-log">
         <div class="log-item">
           <span class="log-time">[Init]</span>
-          <span class="log-info">Ready for testing. Click the player or test triggers above.</span>
+          <span class="log-info">Test Lab loaded. Video engine ready.</span>
         </div>
       </div>
     </div>
@@ -374,7 +532,9 @@
   <script>
     const consoleLog = document.getElementById('console-log');
     const overlay = document.getElementById('fake-clickjack-overlay');
-    const playBtn = document.getElementById('player-play-btn');
+    const video = document.getElementById('test-video');
+    const statusDisplay = document.getElementById('player-status-display');
+    const overlayActions = document.getElementById('player-overlay-actions');
 
     function logEvent(type, message) {
       const time = new Date().toLocaleTimeString();
@@ -383,27 +543,182 @@
       let typeClass = 'log-info';
       if (type === 'BLOCKED') typeClass = 'log-blocked';
       if (type === 'ATTEMPT') typeClass = 'log-warn';
+      if (type === 'ACTION') typeClass = 'log-action';
 
       div.innerHTML = `<span class="log-time">[${time}]</span> <span class="${typeClass}">[${type}]</span> <span>${message}</span>`;
       consoleLog.appendChild(div);
       consoleLog.scrollTop = consoleLog.scrollHeight;
     }
 
-    // Listen for FocusGuard interception events
+    // 1. Synthesize a live animated video stream so <video> is a genuine working player!
+    function initSyntheticVideoStream() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      let frame = 0;
+
+      function draw() {
+        frame++;
+        const hue1 = (frame * 0.5) % 360;
+        const hue2 = (frame * 0.5 + 60) % 360;
+
+        const grad = ctx.createLinearGradient(0, 0, 640, 360);
+        grad.addColorStop(0, `hsl(${hue1}, 70%, 20%)`);
+        grad.addColorStop(1, `hsl(${hue2}, 80%, 10%)`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 640, 360);
+
+        // Animated neon circle
+        const rad = 40 + Math.sin(frame * 0.05) * 15;
+        ctx.beginPath();
+        ctx.arc(320, 160, rad, 0, Math.PI * 2);
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 4;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#10b981';
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Title text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 22px Outfit, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('FOCUSGUARD STREAM LAB', 320, 240);
+
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '14px JetBrains Mono, monospace';
+        const mins = Math.floor((frame / 30) / 60);
+        const secs = Math.floor((frame / 30) % 60);
+        ctx.fillText(`TIMECODE: ${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')} • 30 FPS`, 320, 270);
+
+        requestAnimationFrame(draw);
+      }
+      draw();
+
+      try {
+        const stream = canvas.captureStream(30);
+        video.srcObject = stream;
+        logEvent('INFO', 'Synthesized HTML5 video stream active.');
+      } catch (err) {
+        logEvent('WARN', 'Canvas captureStream fallback: ' + err.message);
+      }
+    }
+
+    initSyntheticVideoStream();
+
+    // 2. Video Player Event Listeners & Status Bar Sync
+    function formatTime(s) {
+      if (isNaN(s) || s < 0) return '00:00';
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+
+    function updateStatusDisplay() {
+      const state = video.paused ? 'PAUSED' : 'PLAYING';
+      const cur = formatTime(video.currentTime);
+      const dur = isNaN(video.duration) || !isFinite(video.duration) ? '05:00' : formatTime(video.duration);
+      const vol = video.muted ? 'MUTED' : `${Math.round(video.volume * 100)}%`;
+      const fs = document.fullscreenElement ? 'YES' : 'NO';
+      statusDisplay.textContent = `${state} • ${cur} / ${dur} • VOL: ${vol} • FS: ${fs}`;
+    }
+
+    video.addEventListener('play', () => {
+      logEvent('ACTION', 'Video event: PLAY');
+      updateStatusDisplay();
+    });
+
+    video.addEventListener('pause', () => {
+      logEvent('ACTION', 'Video event: PAUSE');
+      updateStatusDisplay();
+    });
+
+    video.addEventListener('volumechange', () => {
+      logEvent('ACTION', `Video volume: ${video.muted ? 'Muted' : Math.round(video.volume * 100) + '%'}`);
+      updateStatusDisplay();
+    });
+
+    video.addEventListener('timeupdate', updateStatusDisplay);
+    document.addEventListener('fullscreenchange', updateStatusDisplay);
+
+    // 3. Listen for FocusGuard interception events
     window.addEventListener('__focusguard_intercept__', (e) => {
       const detail = e.detail || {};
       logEvent('BLOCKED', `FocusGuard intercepted ${detail.type}: ${detail.url || 'blank'}`);
     });
 
-    // 1. Overlay click handler
+    // 4. Test Action: Spawn Skip Intro Button
+    document.getElementById('btn-test-skip-intro').addEventListener('click', () => {
+      const existing = document.getElementById('skip-intro');
+      if (existing) existing.remove();
+
+      const btn = document.createElement('button');
+      btn.id = 'skip-intro';
+      btn.className = 'sim-skip-btn';
+      btn.innerHTML = '⚡ Skip Intro (OP)';
+      btn.addEventListener('click', () => {
+        logEvent('ACTION', '⚡ Skip Intro button was clicked by FocusGuard!');
+        btn.remove();
+      });
+
+      overlayActions.appendChild(btn);
+      logEvent('INFO', 'Spawned #skip-intro button. Watching FocusGuard auto-click it...');
+    });
+
+    // 5. Test Action: Spawn Skip Outro Button
+    document.getElementById('btn-test-skip-outro').addEventListener('click', () => {
+      const existing = document.getElementById('skip-outro');
+      if (existing) existing.remove();
+
+      const btn = document.createElement('button');
+      btn.id = 'skip-outro';
+      btn.className = 'sim-skip-btn';
+      btn.innerHTML = '⚡ Skip Outro (ED)';
+      btn.addEventListener('click', () => {
+        logEvent('ACTION', '⚡ Skip Outro button was clicked by FocusGuard!');
+        btn.remove();
+      });
+
+      overlayActions.appendChild(btn);
+      logEvent('INFO', 'Spawned #skip-outro button. Watching FocusGuard auto-click it...');
+    });
+
+    // 6. Test Action: Simulate Video End / Next Episode
+    document.getElementById('btn-test-end-video').addEventListener('click', () => {
+      const nextBtn = document.getElementById('sim-next-ep-btn');
+      nextBtn.style.display = 'inline-flex';
+      nextBtn.onclick = () => {
+        logEvent('ACTION', '⏭️ Next Episode 02 button was triggered!');
+        alert('Navigated to Episode 02!');
+      };
+
+      logEvent('INFO', 'Simulating video "ended" event to trigger Next Episode countdown...');
+      video.dispatchEvent(new Event('ended'));
+    });
+
+    // 7. Manual Controls
+    document.getElementById('btn-toggle-play-test').addEventListener('click', () => {
+      if (video.paused) video.play();
+      else video.pause();
+    });
+
+    document.getElementById('btn-test-fs').addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        document.getElementById('player-wrapper').requestFullscreen();
+      }
+    });
+
+    // 8. Overlay and Redirect Vector Handlers
     if (overlay) {
-      overlay.addEventListener('click', (e) => {
+      overlay.addEventListener('click', () => {
         logEvent('ATTEMPT', 'Overlay clicked! Attempting to launch ad popup...');
         window.open('https://example-malicious-ad-domain.com/popunder', '_blank');
       });
     }
 
-    // Re-arm overlay button
     document.getElementById('btn-rearm-overlay').addEventListener('click', () => {
       if (!document.getElementById('fake-clickjack-overlay')) {
         const newOverlay = document.createElement('div');
@@ -420,12 +735,6 @@
       }
     });
 
-    // 2. Play button click
-    playBtn.addEventListener('click', () => {
-      logEvent('INFO', 'Play button clicked successfully! Video starting...');
-    });
-
-    // 3. Test Button 1: window.open
     document.getElementById('test-window-open').addEventListener('click', () => {
       logEvent('ATTEMPT', 'Calling window.open("https://popunder-traffic.net", "_blank")...');
       const win = window.open('https://popunder-traffic.net', '_blank');
@@ -434,7 +743,6 @@
       }
     });
 
-    // 4. Test Button 2: Programmatic Anchor Click
     document.getElementById('test-anchor-click').addEventListener('click', () => {
       logEvent('ATTEMPT', 'Triggering programmatic anchor click in background...');
       const a = document.createElement('a');
@@ -444,12 +752,6 @@
       a.click();
     });
 
-    // 5. Test Button 3: External Link Click
-    document.getElementById('test-player-link').addEventListener('click', (e) => {
-      logEvent('ATTEMPT', 'Direct external target="_blank" link clicked.');
-    });
-
-    // Clear console
     document.getElementById('btn-clear-console').addEventListener('click', () => {
       consoleLog.innerHTML = '';
       logEvent('INFO', 'Console log cleared.');

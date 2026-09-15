@@ -11,14 +11,27 @@ const trackedChildTabs = new Map();
 
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats'], (res) => {
+  chrome.storage.local.get([
+    'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
+    'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
+    'enableAutoSkipIntro', 'enableAutoSkipOutro', 'skipIntroSeconds', 'seekSeconds'
+  ], (res) => {
     const defaults = {
       enabled: res.enabled !== undefined ? res.enabled : true,
       mode: res.mode || 'block_and_close', // 'block_and_close' | 'keep_focus'
       blockOverlays: res.blockOverlays !== undefined ? res.blockOverlays : true,
       whitelist: res.whitelist || [],
       totalBlocked: res.totalBlocked || 0,
-      siteStats: res.siteStats || {}
+      siteStats: res.siteStats || {},
+      // Video Player Suite Defaults
+      enableKeyboardControls: res.enableKeyboardControls !== undefined ? res.enableKeyboardControls : true,
+      enableFullscreenFix: res.enableFullscreenFix !== undefined ? res.enableFullscreenFix : true,
+      enableAutoPlay: res.enableAutoPlay !== undefined ? res.enableAutoPlay : true,
+      enableAutoNext: res.enableAutoNext !== undefined ? res.enableAutoNext : true,
+      enableAutoSkipIntro: res.enableAutoSkipIntro !== undefined ? res.enableAutoSkipIntro : true,
+      enableAutoSkipOutro: res.enableAutoSkipOutro !== undefined ? res.enableAutoSkipOutro : true,
+      skipIntroSeconds: res.skipIntroSeconds !== undefined ? res.skipIntroSeconds : 85,
+      seekSeconds: res.seekSeconds !== undefined ? res.seekSeconds : 5
     };
     chrome.storage.local.set(defaults);
   });

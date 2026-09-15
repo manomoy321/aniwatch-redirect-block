@@ -14,6 +14,37 @@ A powerful Manifest V3 browser extension engineered to neutralize aggressive cli
 
 ## ✨ Features
 
+### 🎬 Video Player Suite (Aniwatch & Streaming Media)
+* ⌨️ **Universal Keyboard Controls**: Cross-frame keyboard shortcuts that work even when focus is on the host page or outer iframe:
+  * <kbd>Space</kbd> or <kbd>K</kbd>: Play / Pause toggle
+  * <kbd>←</kbd> / <kbd>→</kbd> or <kbd>J</kbd> / <kbd>L</kbd>: Seek ±5 seconds (<kbd>Shift</kbd> + <kbd>←</kbd>/<kbd>→</kbd> for ±15s)
+  * <kbd>↑</kbd> / <kbd>↓</kbd>: Volume up / down (±5%)
+  * <kbd>M</kbd>: Mute / Unmute audio
+  * <kbd>F</kbd>: Fullscreen toggle (or double-click video)
+  * <kbd>S</kbd> or <kbd>I</kbd>: Skip Intro (auto-clicks button or jumps forward 85s)
+  * <kbd>O</kbd>: Skip Outro (auto-clicks button or jumps forward 85s)
+  * <kbd>[</kbd> / <kbd>]</kbd> or <kbd>&lt;</kbd> / <kbd>&gt;</kbd>: Playback speed down / up (0.25x – 3.0x)
+  * <kbd>0</kbd> – <kbd>9</kbd>: Jump to 0% – 90% of duration
+  * <kbd>N</kbd> or <kbd>P</kbd>: Advance to Next Episode
+* ⛶ **Rock-Solid Fullscreen Fix**:
+  * Automatically injects `allowfullscreen`, `webkitallowfullscreen`, and Permissions Policy `allow="fullscreen; autoplay; ..."` onto all player `<iframe>`s (MegaCloud, RapidCloud, StreamTape, etc.).
+  * Cross-frame fallback bridge: If an iframe's internal fullscreen request is blocked by browser sandboxing, FocusGuard bridges the request to the parent window to fullscreen the player container cleanly.
+  * Double-click on video to toggle fullscreen.
+* ▶️ **Intelligent Auto-Play**:
+  * Automatically starts playback on player load.
+  * If browser autoplay policy rejects unmuted audio, it smoothly falls back to playing muted with an on-screen prompt and immediately unmutes on the first user interaction.
+* ⚡ **Auto Skip Intro & Outro**:
+  * Auto-detects and clicks Skip Intro / Skip OP buttons across Aniwatch, MegaCloud, RapidCloud, and custom HTML5 players within 350ms of appearance.
+  * Auto-detects and clicks Skip Outro / Skip ED buttons when ending credits play.
+  * Instant manual hotkey fallback (<kbd>S</kbd> / <kbd>O</kbd>) jumps 85 seconds forward.
+* ⏭️ **Auto Play Next Episode**:
+  * Watches video end events and triggers a sleek 3-second countdown HUD toast before advancing to the next episode automatically.
+* 🖥️ **Cyber-Sleek Player HUD**:
+  * Visual glassmorphic pill notifications floating on screen providing instantaneous feedback for play, pause, seek, volume bar, speed, and auto-skip.
+* 💬 **Typing Safety Exclusion**:
+  * Automatically disables media keys when typing in search bars, comment boxes, or forms.
+
+### 🛡️ Redirect & Pop-under Shield
 * 🚫 **Rogue `window.open()` Interception**: Overrides `window.open` at `document_start` before ad scripts execute. In **Block & Close** mode, it safely returns a mock window object so video players never crash or detect blockers.
 * 👻 **Invisible Overlay Killer**: Scans for and destroys transparent full-screen or player overlays (`<div>`, `<a>`) that attempt to capture your first click.
 * 🎯 **Full-Page Link Click Interceptor**: Stops unauthorized external `target="_blank"` link clicks anywhere on the page while preserving your legitimate internal navigation.

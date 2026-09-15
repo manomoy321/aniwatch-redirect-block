@@ -106,6 +106,108 @@
       </div>
     </section>
 
+    <!-- Video Player Enhancements Section -->
+    <section class="settings-section">
+      <div class="section-header-row">
+        <h3 class="section-heading">Video Player Suite</h3>
+        <button type="button" class="btn-shortcuts-badge" id="btn-toggle-shortcuts" title="View Keyboard Shortcuts">
+          ⌨️ Shortcuts
+        </button>
+      </div>
+
+      <!-- Keyboard Controls Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Keyboard Controls</span>
+          <span class="feature-desc">Space, Arrows, F, M, S, O & speed shortcuts</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-keyboard">
+          <input type="checkbox" id="toggle-keyboard" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Fullscreen Fix Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Fullscreen Enforcer</span>
+          <span class="feature-desc">Forces iframe permissions & double-click fullscreen</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-fullscreen">
+          <input type="checkbox" id="toggle-fullscreen" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Auto Play Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Auto Play Video</span>
+          <span class="feature-desc">Starts playback automatically on player load</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-autoplay">
+          <input type="checkbox" id="toggle-autoplay" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Auto Skip Intro Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Auto Skip Intro (OP)</span>
+          <span class="feature-desc">Auto-clicks Skip Intro / 85s anime openings</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-skip-intro">
+          <input type="checkbox" id="toggle-skip-intro" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Auto Skip Outro Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Auto Skip Outro (ED)</span>
+          <span class="feature-desc">Auto-clicks Skip Outro / ending credits</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-skip-outro">
+          <input type="checkbox" id="toggle-skip-outro" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Auto Play Next Episode Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Auto Next Episode</span>
+          <span class="feature-desc">Plays next episode when current one finishes</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-autonext">
+          <input type="checkbox" id="toggle-autonext" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Shortcuts Cheatsheet Card (Collapsible) -->
+      <div class="shortcuts-panel" id="shortcuts-panel" style="display: none;">
+        <div class="shortcuts-header">
+          <span class="shortcuts-title">Keyboard Shortcuts Matrix</span>
+        </div>
+        <div class="shortcuts-grid">
+          <div class="shortcut-row"><span class="shortcut-key">Space / K</span><span class="shortcut-action">Play / Pause</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">← / →</span><span class="shortcut-action">Seek ±5s (Shift ±15s)</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">↑ / ↓</span><span class="shortcut-action">Volume ±5%</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-action">Mute / Unmute</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">F</span><span class="shortcut-action">Fullscreen Toggle</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">Double Click</span><span class="shortcut-action">Fullscreen Toggle</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">S / I</span><span class="shortcut-action">Skip Intro (+85s)</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">O</span><span class="shortcut-action">Skip Outro (+85s)</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">[ / ]</span><span class="shortcut-action">Playback Speed (-/+)</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">0 – 9</span><span class="shortcut-action">Jump 0% – 90%</span></div>
+          <div class="shortcut-row"><span class="shortcut-key">N / P</span><span class="shortcut-action">Next Episode</span></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="app-footer">
       <span class="footer-version">FocusGuard v1.0 • Manifest V3</span>

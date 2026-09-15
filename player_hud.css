@@ -1,0 +1,137 @@
+/* ==========================================================================
+   FocusGuard - Player HUD (Heads-Up Display) Stylesheet
+   Cyber-sleek glassmorphic feedback overlay for media controls
+   ========================================================================== */
+
+#focusguard-hud-host {
+  position: fixed !important;
+  top: 40px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 2147483647 !important;
+  pointer-events: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  user-select: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.fg-hud-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px 20px !important;
+  background: rgba(11, 15, 25, 0.88) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 20px rgba(16, 185, 129, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  border-radius: 9999px !important;
+  color: #f8fafc !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  opacity: 0 !important;
+  transform: translateY(-12px) scale(0.94) !important;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+}
+
+.fg-hud-badge.fg-hud-visible {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+}
+
+.fg-hud-badge.fg-hud-hiding {
+  opacity: 0 !important;
+  transform: translateY(-8px) scale(0.96) !important;
+}
+
+.fg-hud-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  color: #34d399 !important;
+}
+
+.fg-hud-text {
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+}
+
+.fg-hud-extra {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+  font-weight: 500 !important;
+  margin-left: 2px !important;
+}
+
+/* Volume bar indicator inside HUD */
+.fg-hud-progress-wrap {
+  width: 70px !important;
+  height: 6px !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+  margin-left: 4px !important;
+}
+
+.fg-hud-progress-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, #10b981, #06b6d4) !important;
+  border-radius: 4px !important;
+  transition: width 0.15s ease-out !important;
+}
+
+/* Special highlight for Auto-Skip */
+.fg-hud-badge.fg-hud-skip {
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 22px rgba(6, 182, 212, 0.35) !important;
+}
+
+.fg-hud-badge.fg-hud-skip .fg-hud-icon {
+  color: #22d3ee !important;
+}
+
+/* Next Episode Countdown pill */
+.fg-hud-next-countdown {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 16px !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 0 16px rgba(245, 158, 11, 0.25) !important;
+  border-radius: 24px !important;
+  color: #fbbf24 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+.fg-hud-next-cancel {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+  color: #f87171 !important;
+  padding: 2px 8px !important;
+  border-radius: 12px !important;
+  font-size: 11px !important;
+  margin-left: 6px !important;
+  cursor: pointer !important;
+}
+
+.fg-hud-next-cancel:hover {
+  background: rgba(239, 68, 68, 0.4) !important;
+  color: #ffffff !important;
+}

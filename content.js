@@ -268,4 +268,62 @@
     }
   }, true); // useCapture = true guarantees FocusGuard executes before page handlers
 
+  // 3. Iframe Fullscreen Permissions Enforcer
+  // Guarantees embedded video players inside iframes (MegaCloud, RapidCloud, StreamTape, etc.)
+  // have full browser permission delegation to enter fullscreen mode.
+  function enableIframeFullscreen(ifr) {
+    if (!ifr || ifr.nodeType !== 1) return;
+    try {
+      ifr.setAttribute('allowfullscreen', 'true');
+      ifr.setAttribute('webkitallowfullscreen', 'true');
+      ifr.setAttribute('mozallowfullscreen', 'true');
+
+      let allow = ifr.getAttribute('allow') || '';
+      const neededPolicies = ['fullscreen', 'autoplay', 'encrypted-media', 'picture-in-picture'];
+      let modified = false;
+
+      for (const policy of neededPolicies) {
+        if (!allow.includes(policy)) {
+          allow = (allow ? allow + '; ' : '') + policy;
+          modified = true;
+        }
+      }
+
+      if (modified) {
+        ifr.setAttribute('allow', allow);
+      }
+    } catch (e) {}
+  }
+
+  function enforceAllIframes() {
+    const iframes = document.querySelectorAll('iframe');
+    iframes.forEach(enableIframeFullscreen);
+  }
+
+  // Scan immediately and on DOM readiness
+  enforceAllIframes();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', enforceAllIframes);
+  }
+
+  // Continuously watch for dynamically injected iframes
+  const iframeObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1) {
+          if (node.tagName === 'IFRAME') {
+            enableIframeFullscreen(node);
+          } else if (node.querySelectorAll) {
+            node.querySelectorAll('iframe').forEach(enableIframeFullscreen);
+          }
+        }
+      }
+    }
+  });
+
+  if (document.documentElement) {
+    iframeObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
 })();
+
