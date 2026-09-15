@@ -324,7 +324,10 @@
           e.preventDefault();
           e.stopPropagation();
           const cmd = btn.getAttribute('data-cmd');
-          if (cmd) {
+          if (cmd === 'toggle_fullscreen') {
+            toggleFullscreen();
+            broadcastCommand(cmd);
+          } else if (cmd) {
             executePlayerCommand(cmd);
             syncDockUI();
           }
@@ -690,40 +693,92 @@
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
       document.mozFullScreenElement ||
-      document.msFullscreenElement
+      document.msFullscreenElement ||
+      document.querySelector('.fg-theater-fullscreen') ||
+      document.body.classList.contains('fg-theater-active')
     );
+  }
+
+  function exitAllFullscreen() {
+    const exitFs =
+      document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.mozCancelFullScreen ||
+      document.msExitFullscreen;
+
+    if (exitFs && (document.fullscreenElement || document.webkitFullscreenElement)) {
+      exitFs.call(document).catch(() => {});
+    }
+
+    document.body.classList.remove('fg-theater-active');
+    if (document.documentElement) document.documentElement.classList.remove('fg-theater-active');
+
+    const theaterEls = document.querySelectorAll('.fg-theater-fullscreen');
+    theaterEls.forEach((el) => el.classList.remove('fg-theater-fullscreen'));
+
+    if (window !== window.top) {
+      try {
+        window.top.postMessage({ type: 'FOCUSGUARD_EXIT_FULLSCREEN' }, '*');
+      } catch (e) {}
+    }
+
+    showHud('⛶', 'Exit Fullscreen');
+  }
+
+  function toggleTheaterFullscreen(el) {
+    if (!el) return;
+    if (el.classList.contains('fg-theater-fullscreen')) {
+      exitAllFullscreen();
+    } else {
+      document.body.classList.add('fg-theater-active');
+      if (document.documentElement) document.documentElement.classList.add('fg-theater-active');
+      el.classList.add('fg-theater-fullscreen');
+      showHud('⛶', 'Fullscreen');
+    }
+  }
+
+  function fallbackToTheaterOrBridge(target) {
+    toggleTheaterFullscreen(target);
+    if (window !== window.top) {
+      try {
+        window.top.postMessage({ type: 'FOCUSGUARD_REQUEST_PARENT_FULLSCREEN' }, '*');
+      } catch (e) {}
+    }
   }
 
   function toggleFullscreen(preferredTarget) {
     if (!isEnabled() || !playerSettings.enableFullscreenFix) return;
 
     if (isCurrentlyFullscreen()) {
-      const exitFs =
-        document.exitFullscreen ||
-        document.webkitExitFullscreen ||
-        document.mozCancelFullScreen ||
-        document.msExitFullscreen;
+      exitAllFullscreen();
+      return;
+    }
 
-      if (exitFs) {
-        exitFs.call(document).catch(() => {});
-        showHud('⛶', 'Exit Fullscreen');
-      }
-    } else {
-      // Target element: preferred video, active video, or parent container
-      let target = preferredTarget || activeVideo;
-      if (!target) {
-        findVideos();
-        target = activeVideo;
-      }
+    // Target element: preferred video, active video, or parent container
+    let target = preferredTarget || activeVideo;
+    if (!target) {
+      findVideos();
+      target = activeVideo;
+    }
 
-      // If player has a container element (e.g. jwplayer or player wrapper), prefer it
-      if (target) {
-        const container = target.closest('.jwplayer, .video-js, [id*="player"], .player-container, #player');
-        if (container) target = container;
-      } else {
-        target = document.documentElement;
-      }
+    // If on top window without a local video, target the embedded iframe or player container
+    if (window === window.top && !target) {
+      target = document.querySelector('iframe[src*="embed"], iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe, .player-container, #player, #iframe-embed');
+    }
 
+    // If player has a container element (e.g. jwplayer or player wrapper), prefer it
+    if (target && target.tagName !== 'IFRAME') {
+      const container = target.closest('.jwplayer, .video-js, [id*="player"], .player-container, #player');
+      if (container) target = container;
+    }
+
+    if (!target) target = document.documentElement;
+
+    // Check if the current document is allowed native fullscreen by Permissions Policy
+    const isFsAllowed = (document.fullscreenEnabled !== false) && 
+                        (document.webkitFullscreenEnabled !== false);
+
+    if (isFsAllowed) {
       const requestFs =
         target.requestFullscreen ||
         target.webkitRequestFullscreen ||
@@ -731,25 +786,36 @@
         target.msRequestFullscreen;
 
       if (requestFs) {
-        const p = requestFs.call(target);
-        if (p && typeof p.then === 'function') {
-          p.then(() => {
+        try {
+          const p = requestFs.call(target);
+          if (p && typeof p.then === 'function') {
+            p.then(() => {
+              showHud('⛶', 'Fullscreen');
+            }).catch(() => {
+              fallbackToTheaterOrBridge(target);
+            });
+            return;
+          } else {
             showHud('⛶', 'Fullscreen');
-          }).catch((err) => {
-            console.warn('[FocusGuard] Fullscreen failed locally, trying bridge:', err);
-            // If rejected inside an iframe, bridge to parent window
-            if (window !== window.top) {
-              window.top.postMessage({ type: 'FOCUSGUARD_REQUEST_PARENT_FULLSCREEN' }, '*');
-            }
-          });
-        } else {
-          showHud('⛶', 'Fullscreen');
+            return;
+          }
+        } catch (err) {
+          fallbackToTheaterOrBridge(target);
+          return;
         }
-      } else if (window !== window.top) {
-        window.top.postMessage({ type: 'FOCUSGUARD_REQUEST_PARENT_FULLSCREEN' }, '*');
       }
     }
+
+    // Document is disallowed native fullscreen by Permissions Policy -> seamlessly fall back to Theater mode / bridge
+    fallbackToTheaterOrBridge(target);
   }
+
+  // Listen for Escape key to exit theater fullscreen
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isCurrentlyFullscreen()) {
+      exitAllFullscreen();
+    }
+  }, true);
 
   // 8. Cross-Frame Message Bus Listener
   window.addEventListener('message', (event) => {
@@ -771,15 +837,26 @@
           } catch (e) {}
         }
 
-        const target = matchedIframe || document.querySelector('iframe') || document.documentElement;
+        const target = matchedIframe || document.querySelector('iframe[src*="embed"], iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe, .player-container, #player, #iframe-embed');
         if (target) {
           const req = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen;
           if (req) {
             req.call(target).then(() => {
               showHud('⛶', 'Fullscreen (Bridge)');
-            }).catch(() => {});
+            }).catch(() => {
+              toggleTheaterFullscreen(target);
+            });
+          } else {
+            toggleTheaterFullscreen(target);
           }
         }
+      }
+    }
+
+    // Child iframe requested exit fullscreen
+    if (data.type === 'FOCUSGUARD_EXIT_FULLSCREEN') {
+      if (window === window.top) {
+        exitAllFullscreen();
       }
     }
 
@@ -1084,7 +1161,10 @@
       e.preventDefault();
       e.stopPropagation();
 
-      if (hasLocalVideo) {
+      if (cmd === 'toggle_fullscreen') {
+        toggleFullscreen();
+        broadcastCommand(cmd, val);
+      } else if (hasLocalVideo) {
         executePlayerCommand(cmd, val);
       } else {
         // Broadcast across frames to find the active player

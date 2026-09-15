@@ -158,5 +158,40 @@
     return rawDispatchEvent.apply(this, arguments);
   };
 
+  // 4. Proactively grant full permissions (fullscreen, autoplay, pip) to all iframes upon creation
+  const rawCreateElement = Document.prototype.createElement;
+  Document.prototype.createElement = function (tagName, options) {
+    const el = rawCreateElement.call(this, tagName, options);
+    if (el && tagName && typeof tagName === 'string' && tagName.toLowerCase() === 'iframe') {
+      try {
+        el.setAttribute('allowfullscreen', 'true');
+        el.setAttribute('webkitallowfullscreen', 'true');
+        el.setAttribute('mozallowfullscreen', 'true');
+        el.setAttribute('allow', 'fullscreen; autoplay; encrypted-media; picture-in-picture *');
+      } catch (e) {}
+    }
+    return el;
+  };
+
+  const rawSetAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (this instanceof HTMLIFrameElement) {
+      try {
+        if (!this.hasAttribute('allowfullscreen')) {
+          rawSetAttribute.call(this, 'allowfullscreen', 'true');
+          rawSetAttribute.call(this, 'webkitallowfullscreen', 'true');
+          rawSetAttribute.call(this, 'mozallowfullscreen', 'true');
+        }
+        const currentAllow = this.getAttribute('allow') || '';
+        if (!currentAllow.includes('fullscreen')) {
+          const newAllow = currentAllow ? currentAllow + '; fullscreen; autoplay; encrypted-media; picture-in-picture *' : 'fullscreen; autoplay; encrypted-media; picture-in-picture *';
+          rawSetAttribute.call(this, 'allow', newAllow);
+        }
+      } catch (e) {}
+    }
+    return rawSetAttribute.apply(this, arguments);
+  };
+
   console.log('[FocusGuard] Main World hooks armed.');
 })();
+
