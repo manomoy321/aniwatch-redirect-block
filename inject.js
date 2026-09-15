@@ -158,12 +158,15 @@
     return rawDispatchEvent.apply(this, arguments);
   };
 
-  // 4. Proactively grant modern W3C permissions to all iframes upon creation
+  // 4. Proactively grant full permissions (fullscreen, autoplay, pip) to all iframes upon creation
   const rawCreateElement = Document.prototype.createElement;
   Document.prototype.createElement = function (tagName, options) {
     const el = rawCreateElement.call(this, tagName, options);
     if (el && tagName && typeof tagName === 'string' && tagName.toLowerCase() === 'iframe') {
       try {
+        el.setAttribute('allowfullscreen', 'true');
+        el.setAttribute('webkitallowfullscreen', 'true');
+        el.setAttribute('mozallowfullscreen', 'true');
         el.setAttribute('allow', 'fullscreen *; autoplay *; encrypted-media *; picture-in-picture *');
       } catch (e) {}
     }

@@ -276,32 +276,29 @@
     }
   }, true); // useCapture = true guarantees FocusGuard executes before page handlers
 
-  // 3. Modern Iframe Permissions Enforcer
-  // Grants fullscreen, autoplay, and media permissions via standard W3C Permissions Policy ('allow').
-  // Strips legacy 'allowfullscreen' attributes to prevent Chromium precedence warnings.
+  // 3. Complete Iframe Permissions Enforcer
+  // Grants fullscreen, autoplay, and media permissions via both modern W3C Permissions Policy ('allow')
+  // and legacy attributes ('allowfullscreen') so player libraries (JWPlayer, MegaCloud) recognize fullscreen capability.
   function enableIframeFullscreen(ifr) {
     if (!ifr || ifr.nodeType !== 1) return;
     try {
-      // Remove legacy boolean attributes so Chromium never warns:
-      // "Allow attribute will take precedence over 'allowfullscreen'."
-      if (ifr.hasAttribute('allowfullscreen')) ifr.removeAttribute('allowfullscreen');
-      if (ifr.hasAttribute('webkitallowfullscreen')) ifr.removeAttribute('webkitallowfullscreen');
-      if (ifr.hasAttribute('mozallowfullscreen')) ifr.removeAttribute('mozallowfullscreen');
+      if (!ifr.hasAttribute('allowfullscreen')) ifr.setAttribute('allowfullscreen', 'true');
+      if (!ifr.hasAttribute('webkitallowfullscreen')) ifr.setAttribute('webkitallowfullscreen', 'true');
+      if (!ifr.hasAttribute('mozallowfullscreen')) ifr.setAttribute('mozallowfullscreen', 'true');
 
-      const currentAllow = ifr.getAttribute('allow') || '';
+      let currentAllow = ifr.getAttribute('allow') || '';
       const neededPolicies = ['fullscreen', 'autoplay', 'encrypted-media', 'picture-in-picture'];
-      let policies = currentAllow ? currentAllow.split(';').map(s => s.trim()).filter(Boolean) : [];
       let modified = false;
 
       for (const policy of neededPolicies) {
-        if (!policies.some(p => p.startsWith(policy))) {
-          policies.push(`${policy} *`);
+        if (!currentAllow.includes(policy)) {
+          currentAllow = (currentAllow ? currentAllow + '; ' : '') + `${policy} *`;
           modified = true;
         }
       }
 
-      if (modified || !currentAllow) {
-        ifr.setAttribute('allow', policies.join('; '));
+      if (modified) {
+        ifr.setAttribute('allow', currentAllow);
       }
     } catch (e) {}
   }

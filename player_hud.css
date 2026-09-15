@@ -165,4 +165,30 @@ html.fg-theater-active {
   box-shadow: none !important;
 }
 
+.fg-theater-fullscreen video,
+video.fg-theater-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+}
+
+.fg-theater-fullscreen iframe,
+iframe.fg-theater-fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+}
+
+.fg-theater-active [class*="player"],
+.fg-theater-active .player-container,
+.fg-theater-active #player {
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+}
+
+
 

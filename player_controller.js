@@ -29,6 +29,9 @@
   let hasAttemptedAutoplay = false;
   let introSkippedForCurrentVideo = false;
   let outroSkippedForCurrentVideo = false;
+  let activePlayerSource = null;
+  let activePlayerIframe = null;
+  const processedMessageIds = new Set();
 
   // 1. Sync settings from chrome.storage
   function updatePlayerSettings() {
@@ -209,20 +212,20 @@
     const legacyDock = document.getElementById('fg-player-shortcut-dock');
     if (legacyDock) legacyDock.remove();
 
-    video.addEventListener('play', () => {
+    function notifyActiveVideo() {
       activeVideo = video;
-    });
+      if (window !== window.top) {
+        try {
+          window.top.postMessage({ type: 'FOCUSGUARD_VIDEO_ACTIVE' }, '*');
+        } catch (e) {}
+      }
+    }
 
+    video.addEventListener('play', notifyActiveVideo);
+    video.addEventListener('playing', notifyActiveVideo);
+    video.addEventListener('click', notifyActiveVideo);
     video.addEventListener('pause', () => {
       // Retain active video reference
-    });
-
-    video.addEventListener('playing', () => {
-      activeVideo = video;
-    });
-
-    video.addEventListener('click', () => {
-      activeVideo = video;
     });
 
     // Double-click to toggle fullscreen
@@ -242,6 +245,9 @@
 
     // Watch playback progress for auto-skip and auto-next
     video.addEventListener('timeupdate', () => {
+      if (!activeVideo || activeVideo.paused) {
+        activeVideo = video;
+      }
       handleTimeUpdate(video);
     });
 
@@ -255,13 +261,38 @@
     }
   }
 
+  function getAllVideos(root = document) {
+    const results = [];
+    try {
+      const vids = root.querySelectorAll('video');
+      vids.forEach(v => results.push(v));
+      const allEls = root.querySelectorAll('*');
+      for (const el of allEls) {
+        if (el.shadowRoot) {
+          results.push(...getAllVideos(el.shadowRoot));
+        }
+      }
+    } catch (e) {}
+    return results;
+  }
+
   function findVideos() {
-    const videos = document.querySelectorAll('video');
+    const videos = getAllVideos(document);
     videos.forEach(bindVideoEvents);
-    if (videos.length > 0 && !activeVideo) {
-      activeVideo = videos[0];
+    if (videos.length > 0 && (!activeVideo || !activeVideo.isConnected)) {
+      activeVideo = videos.find(v => !v.paused) || videos[0];
     }
   }
+
+  // Register pointerdown to detect when user interacts with player iframe
+  document.addEventListener('pointerdown', () => {
+    findVideos();
+    if (activeVideo && window !== window.top) {
+      try {
+        window.top.postMessage({ type: 'FOCUSGUARD_VIDEO_ACTIVE' }, '*');
+      } catch (e) {}
+    }
+  }, true);
 
   // Observe DOM for newly inserted videos or players
   const domObserver = new MutationObserver(() => {
@@ -273,8 +304,9 @@
     }
   });
 
-  if (document.body) {
-    domObserver.observe(document.body, { childList: true, subtree: true });
+  const rootToObserve = document.documentElement || document.body;
+  if (rootToObserve) {
+    domObserver.observe(rootToObserve, { childList: true, subtree: true });
   } else {
     document.addEventListener('DOMContentLoaded', () => {
       domObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
@@ -624,10 +656,56 @@
     }
   }, true);
 
+  // 7.5 Native Player Fullscreen Button Handler
+  // Guarantees that clicking the site's existing player fullscreen button always works,
+  // falling back to Theater / Bridge Fullscreen if the iframe or browser restricts native fullscreen.
+  document.addEventListener('click', (e) => {
+    if (!isEnabled() || !playerSettings.enableFullscreenFix) return;
+    const target = e.target;
+    if (!target) return;
+
+    const fsBtn = target.closest && target.closest(
+      '.jw-icon-fullscreen, .vjs-fullscreen-control, .art-control-fullscreen, .plyr__control[data-plyr="fullscreen"], [class*="fullscreen"], [id*="fullscreen"], [aria-label*="ullscreen" i], [title*="ullscreen" i], [data-action*="fullscreen" i]'
+    );
+
+    if (fsBtn) {
+      console.log('[FocusGuard] Detected click on native player fullscreen button:', fsBtn);
+
+      if (isCurrentlyFullscreen()) {
+        exitAllFullscreen();
+        return;
+      }
+
+      // Check if native fullscreen succeeds within 70ms; if not, activate FocusGuard engine
+      setTimeout(() => {
+        if (!isCurrentlyFullscreen()) {
+          console.log('[FocusGuard] Native fullscreen did not activate. Activating fallback...');
+          toggleFullscreen(activeVideo);
+        }
+      }, 70);
+    }
+  }, true);
+
   // 8. Cross-Frame Message Bus Listener
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || typeof data !== 'object') return;
+
+    // Track which frame has the active video
+    if (data.type === 'FOCUSGUARD_VIDEO_ACTIVE') {
+      activePlayerSource = event.source;
+      if (window === window.top) {
+        const iframes = document.querySelectorAll('iframe');
+        for (const ifr of iframes) {
+          try {
+            if (ifr.contentWindow === event.source) {
+              activePlayerIframe = ifr;
+              break;
+            }
+          } catch (e) {}
+        }
+      }
+    }
 
     // Child iframe requested parent window to fullscreen its iframe element
     if (data.type === 'FOCUSGUARD_REQUEST_PARENT_FULLSCREEN') {
@@ -676,27 +754,42 @@
 
     // Keyboard command received from parent or another frame
     if (data.type === 'FOCUSGUARD_PLAYER_CMD') {
+      if (data.msgId) {
+        if (processedMessageIds.has(data.msgId)) return;
+        processedMessageIds.add(data.msgId);
+        if (processedMessageIds.size > 100) {
+          const oldest = processedMessageIds.values().next().value;
+          processedMessageIds.delete(oldest);
+        }
+      }
+
       findVideos();
       if (activeVideo) {
         executePlayerCommand(data.cmd, data.value);
         // Reply with current state so sender can show HUD
+        const ackMsg = {
+          type: 'FOCUSGUARD_PLAYER_CMD_ACK',
+          cmd: data.cmd,
+          paused: activeVideo.paused,
+          currentTime: activeVideo.currentTime,
+          duration: activeVideo.duration,
+          volume: activeVideo.volume,
+          muted: activeVideo.muted,
+          playbackRate: activeVideo.playbackRate
+        };
         try {
-          if (event.source) {
-            event.source.postMessage({
-              type: 'FOCUSGUARD_PLAYER_CMD_ACK',
-              cmd: data.cmd,
-              paused: activeVideo.paused,
-              currentTime: activeVideo.currentTime,
-              duration: activeVideo.duration,
-              volume: activeVideo.volume,
-              muted: activeVideo.muted,
-              playbackRate: activeVideo.playbackRate
-            }, '*');
+          if (event.source && event.source !== window) {
+            event.source.postMessage(ackMsg, '*');
           }
         } catch (e) {}
-      } else if (window === window.top) {
-        // Broadcast down to all child iframes if active video is inside an embed
-        broadcastCommand(data.cmd, data.value);
+        if (window !== window.top) {
+          try {
+            window.top.postMessage(ackMsg, '*');
+          } catch (e) {}
+        }
+      } else {
+        // Broadcast down to child iframes
+        broadcastCommand(data.cmd, data.value, data.msgId);
       }
     }
 
@@ -850,20 +943,38 @@
   }
 
   // Broadcast command to all child iframes and to top window
-  function broadcastCommand(cmd, value) {
-    const msg = { type: 'FOCUSGUARD_PLAYER_CMD', cmd: cmd, value: value };
+  function broadcastCommand(cmd, value, sourceMsgId) {
+    const msgId = sourceMsgId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const msg = { type: 'FOCUSGUARD_PLAYER_CMD', cmd: cmd, value: value, msgId: msgId };
 
-    // Post to all child iframes
-    const iframes = document.querySelectorAll('iframe');
-    iframes.forEach((ifr) => {
+    // 1. Direct message to known active player source frame
+    if (activePlayerSource) {
       try {
-        if (ifr.contentWindow) {
-          ifr.contentWindow.postMessage(msg, '*');
+        activePlayerSource.postMessage(msg, '*');
+      } catch (e) {}
+    }
+
+    // 2. Broadcast down to all child iframes (including shadow roots)
+    function sendToIframes(root = document) {
+      try {
+        const ifrs = root.querySelectorAll('iframe');
+        ifrs.forEach((ifr) => {
+          try {
+            if (ifr.contentWindow) {
+              ifr.contentWindow.postMessage(msg, '*');
+            }
+          } catch (e) {}
+        });
+        const allEls = root.querySelectorAll('*');
+        for (const el of allEls) {
+          if (el.shadowRoot) sendToIframes(el.shadowRoot);
         }
       } catch (e) {}
-    });
+    }
 
-    // If we're inside an iframe, also post to parent/top
+    sendToIframes(document);
+
+    // 3. If we're inside an iframe, also post to parent/top
     if (window !== window.top) {
       try {
         window.top.postMessage(msg, '*');
@@ -965,6 +1076,7 @@
     if (handled && cmd) {
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
 
       if (cmd === 'toggle_fullscreen') {
         toggleFullscreen();
@@ -974,6 +1086,9 @@
       } else {
         // Broadcast across frames to find the active player
         broadcastCommand(cmd, val);
+        if (activePlayerIframe && typeof activePlayerIframe.focus === 'function') {
+          try { activePlayerIframe.focus(); } catch (err) {}
+        }
       }
     }
   }
