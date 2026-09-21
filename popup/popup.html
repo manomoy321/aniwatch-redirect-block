@@ -175,16 +175,36 @@
         </label>
       </div>
 
-      <!-- Auto Play Next Episode Toggle -->
+      <!-- Auto-Select English (ENG) / All-Time DUB Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Always Select DUB (English)</span>
+          <span class="feature-desc">All time auto-selects DUB server across all episodes</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-eng">
+          <input type="checkbox" id="toggle-eng" checked>
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
+      <!-- Auto Play Next Episode Toggle & Delay -->
       <div class="feature-item">
         <div class="feature-info">
           <span class="feature-name">Auto Next Episode</span>
-          <span class="feature-desc">Plays next episode when current one finishes</span>
+          <span class="feature-desc">Plays next episode automatically</span>
         </div>
-        <label class="switch-toggle-sm" for="toggle-autonext">
-          <input type="checkbox" id="toggle-autonext" checked>
-          <span class="slider-sm round"></span>
-        </label>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <select id="select-next-delay" class="fg-select-sm" title="Next Episode Delay">
+            <option value="0" selected>0s (Instant)</option>
+            <option value="1">1s</option>
+            <option value="3">3s</option>
+            <option value="5">5s</option>
+          </select>
+          <label class="switch-toggle-sm" for="toggle-autonext">
+            <input type="checkbox" id="toggle-autonext" checked>
+            <span class="slider-sm round"></span>
+          </label>
+        </div>
       </div>
 
 

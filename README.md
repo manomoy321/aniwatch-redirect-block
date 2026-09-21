@@ -31,7 +31,9 @@ A powerful Manifest V3 browser extension engineered to neutralize aggressive cli
   * <kbd>[</kbd> / <kbd>]</kbd> or <kbd>&lt;</kbd> / <kbd>&gt;</kbd>: Playback speed down / up (0.25x – 3.0x)
   * <kbd>0</kbd> – <kbd>9</kbd>: Jump to 0% – 90% of duration
   * <kbd>N</kbd> or <kbd>P</kbd>: Advance to Next Episode
-* ⛶ **Rock-Solid Fullscreen Fix**:
+* ⛶ **Rock-Solid Fullscreen & Seamless Retention**:
+  * **Maintains Fullscreen Mode**: Fullscreen is preserved across auto-skip intro, auto-skip outro, and next episode transitions. If the site player drops fullscreen, FocusGuard instantly re-engages it.
+  * **Scrollbar Disabler**: Completely disables and hides all scrollbars (`overflow: hidden`, `scrollbar-width: none`, `::-webkit-scrollbar: none`) in fullscreen mode so no scrollbars appear.
   * Automatically injects `allowfullscreen`, `webkitallowfullscreen`, and Permissions Policy `allow="fullscreen; autoplay; ..."` onto all player `<iframe>`s (MegaCloud, RapidCloud, StreamTape, etc.).
   * Cross-frame fallback bridge: If an iframe's internal fullscreen request is blocked by browser sandboxing, FocusGuard bridges the request to the parent window to fullscreen the player container cleanly.
   * Double-click on video to toggle fullscreen.
@@ -39,24 +41,34 @@ A powerful Manifest V3 browser extension engineered to neutralize aggressive cli
   * Automatically starts playback on player load.
   * If browser autoplay policy rejects unmuted audio, it smoothly falls back to playing muted with an on-screen prompt and immediately unmutes on the first user interaction.
 * ⚡ **Auto Skip Intro & Outro**:
-  * Auto-detects and clicks Skip Intro / Skip OP buttons across Aniwatch, MegaCloud, RapidCloud, and custom HTML5 players within 350ms of appearance.
-  * Auto-detects and clicks Skip Outro / Skip ED buttons when ending credits play.
+  * Auto-detects and clicks Skip Intro / Skip OP buttons across Aniwatch, MegaCloud, RapidCloud, and custom HTML5 players within 350ms of appearance without dropping fullscreen.
+  * Auto-detects and clicks Skip Outro / Skip ED buttons when ending credits play without dropping fullscreen.
   * Instant manual hotkey fallback (<kbd>S</kbd> / <kbd>O</kbd>) jumps 85 seconds forward.
-* ⏭️ **Auto Play Next Episode**:
-  * Watches video end events and triggers a sleek 3-second countdown HUD toast before advancing to the next episode automatically.
+* 🌐 **English DUB & Server Continuity Engine**:
+  * **Duplicate Button Disambiguation (`vidsrc`)**: Streaming sites often have identical server button names under both SUB and DUB (such as `vidsrc`). FocusGuard scopes strictly to the DUB category first, disambiguates the duplicate buttons, and always selects the English DUB server instead of defaulting to SUB.
+  * **Persistent Server Continuity Across Episodes**: When you select a server button (or switch to DUB), FocusGuard saves your preference. On every next episode and video load, your chosen server is automatically re-applied without resetting to defaults.
+  * Automatically enables English subtitle text tracks (`video.textTracks`) and English audio tracks (`video.audioTracks`) in HTML5 and embedded players (JWPlayer, MegaCloud).
+  * Automatically sets anime title language to English (`EN` / `ENG`) when available.
+* 🚀 **Smooth Playback & Aggressive Video Buffer Engine**:
+  * **Continuous Cache Ahead**: Maximizes HTML5 video preload (`preload = 'auto'`) and tunes HLS streaming buffers to cache 3 to 10 minutes ahead, eliminating playback stutter and buffering freezes.
+  * **GPU Hardware Acceleration**: Forces GPU compositor layer rendering (`transform: translateZ(0)`, `will-change: transform`) to prevent dropped frames when HUD overlays or controls render.
+* ⏭️ **Instant Auto Play Next Episode (0s Delay)**:
+  * Watches video end events and immediately advances to the next episode with **0 seconds delay**, maintaining fullscreen mode.
+  * Delay is fully configurable in the extension popup (0s Instant, 1s, 3s, 5s).
 * 🖥️ **Cyber-Sleek Player HUD**:
-  * Visual glassmorphic pill notifications floating on screen providing instantaneous feedback for play, pause, seek, volume bar, speed, and auto-skip.
+  * Visual glassmorphic pill notifications floating on screen providing instantaneous feedback for play, pause, seek, volume bar, speed, language, and auto-skip.
 * 💬 **Typing Safety Exclusion**:
   * Automatically disables media keys when typing in search bars, comment boxes, or forms.
 
 ### 🛡️ Redirect & Pop-under Shield
-* 🚫 **Rogue `window.open()` Interception**: Overrides `window.open` at `document_start` before ad scripts execute. In **Block & Close** mode, it safely returns a mock window object so video players never crash or detect blockers.
+* 🔒 **Immediate Main Tab Focus Locking**:
+  * When a rogue ad tab is spawned, FocusGuard **immediately locks browser focus to your main video tab**. The popup tab opens silently in the background and is terminated without ever flashing in front of you or pulling you out of fullscreen.
+* 🚫 **Rogue `window.open()` Interception**: Overrides `window.open` at `document_start` before ad scripts execute. In **Block & Close** mode, it safely returns a mock window object so video players never crash or detect blockers. Also hooks `HTMLIFrameElement.prototype.contentWindow` to stop ad scripts from bypassing filters via hidden iframes.
 * 👻 **Invisible Overlay Killer**: Scans for and destroys transparent full-screen or player overlays (`<div>`, `<a>`) that attempt to capture your first click.
-* 🎯 **Full-Page Link Click Interceptor**: Stops unauthorized external `target="_blank"` link clicks anywhere on the page while preserving your legitimate internal navigation.
-* ⚡ **Instant Tab Destroyer (Block & Close Mode)**: If a streaming player or cross-origin iframe spawns a new popup tab, the background service worker destroys it instantly via `chrome.tabs.remove()` and keeps your viewing tab active.
-* 🔒 **Focus Retention (Lock Main Tab Mode)**: If you prefer background tabs to load quietly without interrupting your stream, this mode forces focus to remain locked on your video player.
-* 🖱️ **Preserves Legitimate User Intent**: Intentionally opening links using **Middle-Click** (wheel click) or **Ctrl+Click / Cmd+Click** is recognized as user intent and never blocked.
-* 🔔 **Non-Intrusive HUD Alerts**: Shows a sleek glassmorphic toast notification in the corner whenever a redirect attempt is successfully stopped.
+* 🎯 **Safe Tab Opening & Accurate Redirect Shield**:
+  * Opens new tabs normally without forcefully closing them: You can freely open new tabs via Ctrl+T, '+' button, right-click "Open link in new tab", middle-click, or standard link clicks.
+  * **Only Closes Redirects**: Accurately detects and terminates rogue ad redirects, popunders, and spam ad networks (Adsterra, PopAds, PropellerAds, ClickAdu, gambling/betting/adult redirects, and tracking parameters).
+* 🔕 **100% Silent Background Operation**: Works silently in the background with zero intrusive on-screen blocked toast popups interrupting your view.
 * 📊 **Live Stats & Whitelisting**: Click the extension icon to view live blocked counts, switch modes, or pause protection on trusted sites.
 
 ---
@@ -135,11 +147,14 @@ The repository includes an interactive simulator: `test_page.html`.
 ## 🛠️ Tech Stack & File Structure
 
 * **`manifest.json`**: Chrome Extension Manifest V3 specification.
-* **`inject.js`**: Page-level script hooking `window.open` and synthetic click prototypes.
-* **`content.js`**: Content script intercepting click capture events and managing overlays.
-* **`content.css`**: Isolated glassmorphic styles for HUD toast alerts.
-* **`background.js`**: Service worker enforcing tab auto-close and focus lock.
-* **`popup/`**: Dark glassmorphic settings dashboard with live counters and toggle controls.
+* **`inject.js`**: Page-level script hooking `window.open`, iframe creation, HLS buffer tuning, and synthetic click prototypes.
+* **`content.js`**: Content script intercepting click capture events, user gestures, and managing overlays.
+* **`content.css`**: Isolated styles for universal player scrollbar suppression.
+* **`player_controller.js`**: Universal video controller delivering keyboard shortcuts, fullscreen retention, auto-skip intro/outro, instant auto-next episode, and all-time DUB selection enforcer.
+* **`player_hud.css`**: Floating glassmorphic HUD notifications, GPU acceleration, and fullscreen scrollbar disabler styles.
+* **`background.js`**: Service worker enforcing focus locking, single-use user intent tracking, and background ad tab termination.
+* **`popup/`**: Cyber-glassmorphic settings dashboard with live stats, controls, and interactive shortcuts matrix.
+* **`tests/`**: Automated unit verification suites for DUB selection, continuity, focus locking, buffer tuning, and scrollbar removal.
 * **`icons/`**: High-resolution extension shield icons.
 
 ---

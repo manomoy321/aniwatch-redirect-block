@@ -1,12 +1,10 @@
-/* FocusGuard In-Page Toast Styles (Isolated) */
-#focusguard-toast-host {
-  position: fixed !important;
-  bottom: 24px !important;
-  right: 24px !important;
-  z-index: 2147483647 !important;
+/* FocusGuard Silent Background Mode - Toasts Disabled */
+#focusguard-toast-host,
+.fg-toast {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
   pointer-events: none !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  line-height: 1.4 !important;
 }
 
 .fg-toast {
@@ -90,4 +88,77 @@
 
 .fg-toast-close:hover {
   color: #f1f5f9 !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Universal Player & Video Scrollbar Remover
+   Completely removes the scrollbar from video players on Aniwatch, HiAnime, Boruto, etc.
+   ========================================================================== */
+
+iframe[src*="embed"],
+iframe[src*="megacloud"],
+iframe[src*="rapid-cloud"],
+iframe[src*="vidsrc"],
+iframe[src*="stream"],
+iframe#iframe-embed,
+#iframe-embed,
+.player-container,
+#player,
+#watch-player,
+.watching-player,
+.film-player,
+.player-wrapper,
+#player-wrapper,
+.play-video,
+.jwplayer,
+.video-js,
+.art-video-player,
+[class*="player-container"],
+[class*="player-wrapper"],
+[id*="player-wrapper"] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  overflow: hidden !important;
+}
+
+iframe[src*="embed"]::-webkit-scrollbar,
+iframe[src*="megacloud"]::-webkit-scrollbar,
+iframe[src*="rapid-cloud"]::-webkit-scrollbar,
+iframe[src*="vidsrc"]::-webkit-scrollbar,
+iframe[src*="stream"]::-webkit-scrollbar,
+iframe#iframe-embed::-webkit-scrollbar,
+#iframe-embed::-webkit-scrollbar,
+.player-container::-webkit-scrollbar,
+#player::-webkit-scrollbar,
+#watch-player::-webkit-scrollbar,
+.watching-player::-webkit-scrollbar,
+.film-player::-webkit-scrollbar,
+.player-wrapper::-webkit-scrollbar,
+#player-wrapper::-webkit-scrollbar,
+.play-video::-webkit-scrollbar,
+.jwplayer::-webkit-scrollbar,
+.video-js::-webkit-scrollbar,
+.art-video-player::-webkit-scrollbar,
+[class*="player-container"]::-webkit-scrollbar,
+[class*="player-wrapper"]::-webkit-scrollbar,
+[id*="player-wrapper"]::-webkit-scrollbar,
+video::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+html:has(video),
+body:has(video) {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html:has(video)::-webkit-scrollbar,
+body:has(video)::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
 }

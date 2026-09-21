@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleSkipIntro = document.getElementById('toggle-skip-intro');
   const toggleSkipOutro = document.getElementById('toggle-skip-outro');
   const toggleAutoNext = document.getElementById('toggle-autonext');
+  const toggleEng = document.getElementById('toggle-eng');
+  const selectNextDelay = document.getElementById('select-next-delay');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
 
@@ -43,7 +45,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoPlay: true,
     enableAutoNext: true,
     enableAutoSkipIntro: true,
-    enableAutoSkipOutro: true
+    enableAutoSkipOutro: true,
+    enableAutoSelectEng: true,
+    nextEpisodeDelay: 0
   };
 
   // 1. Identify active tab domain
@@ -90,6 +94,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.enableAutoNext !== undefined) appState.enableAutoNext = data.enableAutoNext;
       if (data.enableAutoSkipIntro !== undefined) appState.enableAutoSkipIntro = data.enableAutoSkipIntro;
       if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
+      if (data.enableAutoSelectEng !== undefined) appState.enableAutoSelectEng = data.enableAutoSelectEng;
+      if (data.nextEpisodeDelay !== undefined) appState.nextEpisodeDelay = Number(data.nextEpisodeDelay) || 0;
 
       renderUI();
     }
@@ -140,6 +146,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (toggleSkipIntro) toggleSkipIntro.checked = appState.enableAutoSkipIntro;
     if (toggleSkipOutro) toggleSkipOutro.checked = appState.enableAutoSkipOutro;
     if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
+    if (toggleEng) toggleEng.checked = appState.enableAutoSelectEng;
+    if (selectNextDelay) selectNextDelay.value = String(appState.nextEpisodeDelay);
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -228,6 +236,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     toggleAutoNext.addEventListener('change', () => {
       appState.enableAutoNext = toggleAutoNext.checked;
       chrome.storage.local.set({ enableAutoNext: appState.enableAutoNext });
+    });
+  }
+
+  if (toggleEng) {
+    toggleEng.addEventListener('change', () => {
+      appState.enableAutoSelectEng = toggleEng.checked;
+      chrome.storage.local.set({ enableAutoSelectEng: appState.enableAutoSelectEng });
+    });
+  }
+
+  if (selectNextDelay) {
+    selectNextDelay.addEventListener('change', () => {
+      appState.nextEpisodeDelay = Number(selectNextDelay.value) || 0;
+      chrome.storage.local.set({ nextEpisodeDelay: appState.nextEpisodeDelay });
     });
   }
 

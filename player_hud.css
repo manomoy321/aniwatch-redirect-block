@@ -190,5 +190,150 @@ iframe.fg-theater-fullscreen {
   perspective: none !important;
 }
 
+/* ==========================================================================
+   FocusGuard - Fullscreen Scrollbar Disabler
+   Completely removes and disables scrollbars across native & theater fullscreen
+   ========================================================================== */
 
+:fullscreen,
+:fullscreen * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
 
+:fullscreen::-webkit-scrollbar,
+:fullscreen *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+video::-webkit-media-controls-enclosure {
+  overflow: hidden !important;
+}
+
+html.fg-fullscreen-active,
+body.fg-fullscreen-active,
+body.fg-theater-active,
+html.fg-theater-active,
+body.fg-theater-active *,
+html.fg-theater-active *,
+.fg-theater-fullscreen,
+.fg-theater-fullscreen * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.fg-fullscreen-active,
+body.fg-fullscreen-active {
+  overflow: hidden !important;
+}
+
+html.fg-fullscreen-active::-webkit-scrollbar,
+body.fg-fullscreen-active::-webkit-scrollbar,
+body.fg-theater-active::-webkit-scrollbar,
+html.fg-theater-active::-webkit-scrollbar,
+.fg-theater-fullscreen::-webkit-scrollbar,
+.fg-theater-fullscreen *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Universal Player & Video Scrollbar Remover
+   Completely removes and disables scrollbars from video players in both
+   normal view and fullscreen mode (HiAnime, Aniwatch, MegaCloud, VidSrc, etc.)
+   ========================================================================== */
+
+iframe[src*="embed"],
+iframe[src*="megacloud"],
+iframe[src*="rapid-cloud"],
+iframe[src*="vidsrc"],
+iframe[src*="stream"],
+iframe#iframe-embed,
+#iframe-embed,
+.player-container,
+#player,
+#watch-player,
+.watching-player,
+.film-player,
+.player-wrapper,
+#player-wrapper,
+.play-video,
+.jwplayer,
+.video-js,
+.art-video-player,
+[class*="player-container"],
+[class*="player-wrapper"],
+[id*="player-wrapper"] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  overflow: hidden !important;
+}
+
+iframe[src*="embed"]::-webkit-scrollbar,
+iframe[src*="megacloud"]::-webkit-scrollbar,
+iframe[src*="rapid-cloud"]::-webkit-scrollbar,
+iframe[src*="vidsrc"]::-webkit-scrollbar,
+iframe[src*="stream"]::-webkit-scrollbar,
+iframe#iframe-embed::-webkit-scrollbar,
+#iframe-embed::-webkit-scrollbar,
+.player-container::-webkit-scrollbar,
+#player::-webkit-scrollbar,
+#watch-player::-webkit-scrollbar,
+.watching-player::-webkit-scrollbar,
+.film-player::-webkit-scrollbar,
+.player-wrapper::-webkit-scrollbar,
+#player-wrapper::-webkit-scrollbar,
+.play-video::-webkit-scrollbar,
+.jwplayer::-webkit-scrollbar,
+.video-js::-webkit-scrollbar,
+.art-video-player::-webkit-scrollbar,
+[class*="player-container"]::-webkit-scrollbar,
+[class*="player-wrapper"]::-webkit-scrollbar,
+[id*="player-wrapper"]::-webkit-scrollbar,
+video::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+html:has(video),
+body:has(video) {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html:has(video)::-webkit-scrollbar,
+body:has(video)::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Smooth Playback & GPU Hardware Acceleration
+   Eliminates dropped frames and stutter during video buffering and rendering
+   ========================================================================== */
+
+video,
+.jw-video,
+.vjs-tech,
+.art-video,
+.dplayer-video,
+iframe[src*="embed"],
+iframe[src*="megacloud"],
+iframe[src*="rapid-cloud"],
+iframe[src*="vidsrc"],
+iframe[src*="stream"],
+.player-container video {
+  transform: translateZ(0) !important;
+  backface-visibility: hidden !important;
+  will-change: transform !important;
+  image-rendering: -webkit-optimize-contrast !important;
+}

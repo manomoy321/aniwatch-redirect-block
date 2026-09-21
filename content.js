@@ -71,77 +71,7 @@
 
   injectMainHook();
 
-  // Toast Notification HUD
-  let toastHost = null;
-
-  function getToastHost() {
-    if (!toastHost || !toastHost.isConnected) {
-      toastHost = document.getElementById('focusguard-toast-host');
-      if (!toastHost) {
-        toastHost = document.createElement('div');
-        toastHost.id = 'focusguard-toast-host';
-        const root = document.body || document.documentElement;
-        if (root) root.appendChild(toastHost);
-      }
-    }
-    return toastHost;
-  }
-
-  let lastToastTime = 0;
-
-  function showBlockedToast(title, message) {
-    const now = Date.now();
-    if (now - lastToastTime < 600) return; // Prevent toast flooding
-    lastToastTime = now;
-
-    const host = getToastHost();
-    if (!host) return;
-
-    const toast = document.createElement('div');
-    toast.className = 'fg-toast';
-    toast.innerHTML = `
-      <div class="fg-toast-icon">🛡️</div>
-      <div class="fg-toast-content">
-        <span class="fg-toast-title">${title}</span>
-        <span class="fg-toast-message">${message}</span>
-      </div>
-      <button class="fg-toast-close" title="Dismiss">&times;</button>
-    `;
-
-    const closeBtn = toast.querySelector('.fg-toast-close');
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      dismissToast(toast);
-    });
-
-    host.appendChild(toast);
-
-    requestAnimationFrame(() => {
-      toast.classList.add('fg-toast-visible');
-    });
-
-    const timer = setTimeout(() => {
-      dismissToast(toast);
-    }, 3000);
-
-    function dismissToast(el) {
-      clearTimeout(timer);
-      el.classList.remove('fg-toast-visible');
-      el.classList.add('fg-toast-hiding');
-      setTimeout(() => {
-        if (el.parentNode) el.parentNode.removeChild(el);
-      }, 300);
-    }
-  }
-
-  // Listen for messages from background script (e.g. when popup tab was closed by background)
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg && msg.action === 'show_toast') {
-      showBlockedToast(msg.title || 'FocusGuard Protected', msg.message || 'Blocked redirect.');
-    }
-  });
-
-  // Handle interception events from inject.js
+  // Silent background interception handler for inject.js events
   window.addEventListener('__focusguard_intercept__', function (e) {
     const detail = e.detail || {};
     const type = detail.type || 'redirect';
@@ -155,8 +85,6 @@
       url: targetUrl,
       reason: reason
     });
-
-    showBlockedToast('FocusGuard Protected', reason);
   });
 
   // Check if an element acts as a transparent click-stealing overlay
@@ -192,11 +120,94 @@
     return false;
   }
 
-  // Intercept user mouse actions at the capture phase
+  // Helper to check for rogue ad redirect URLs on clicked links
+  function isAdUrl(href) {
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+    try {
+      const parsed = new URL(href, window.location.href);
+      const host = parsed.hostname.toLowerCase();
+      const hrefLower = parsed.href.toLowerCase();
+
+      // Same host is never an ad redirect link
+      if (host === currentHost || host.endsWith('.' + currentHost.replace(/^www\./, ''))) {
+        return false;
+      }
+
+      const adKeywords = [
+        'adsterra', 'popads', 'syndication', 'propeller', 'clickadu', 'adcash', 'exoclick',
+        'trafficjunky', 'bet365', '1xbet', 'melbet', 'parimatch', 'stake.com', 'vidoomy',
+        'monetag', 'hilltopads', 'richads', 'popcash', 'doubleclick', 'googleadservices',
+        'directrev', 'forthesakeof', 'deloton', 'highcpmgate', 'trafficgate', 'topcreativeformat',
+        'effectivecpmcontent', 'profitablecpmrate', 'alwingulla', 'wpadmngr', 'onclick'
+      ];
+      for (const kw of adKeywords) {
+        if (host.includes(kw)) return true;
+      }
+      if (/(?:[?&])(?:zoneid|traffic_source|click_id|aff_id|offer_id|pub_id|ad_id|landing_id)=/i.test(parsed.search)) return true;
+      if (/(?:^|\.)(?:ads?|pop|popunder|track|tracker|affiliate|casino|betting)\./i.test(host)) return true;
+      if (/\/redirect\.(?:php|html|js)|(?:\/go|\/click|\/out|\/hop)\.php\?/i.test(hrefLower)) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  // Record user gestures ONLY for deliberate link interactions that could open a new tab
+  // (middle-click, Ctrl/Cmd+click, target="_blank", or right-click context menu on a legitimate link)
+  function notifyUserGesture(e, el) {
+    try {
+      const anchor = el ? (el.closest ? el.closest('a') : null) : (e && e.target && e.target.closest ? e.target.closest('a') : null);
+      if (!anchor) return; // Non-anchor clicks (video, player controls, overlays) NEVER authorize a new tab!
+
+      const rawHref = anchor.getAttribute('href') || anchor.href || '';
+      if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:')) return;
+
+      // Ad links must never be registered as legitimate user intent
+      if (isAdUrl(rawHref)) return;
+
+      let targetUrl = '';
+      let targetHost = '';
+      try {
+        const parsed = new URL(rawHref, window.location.href);
+        targetUrl = parsed.href;
+        targetHost = parsed.hostname;
+      } catch (err) {
+        return;
+      }
+
+      // Check if interaction is genuinely intended to open a new tab:
+      // 1. Middle click (e.button === 1)
+      // 2. Ctrl / Cmd + click
+      // 3. Right-click context menu
+      // 4. Explicit target="_blank"
+      const isMiddleClick = (e && e.button === 1);
+      const isCtrlClick = (e && (e.ctrlKey || e.metaKey));
+      const isContextMenu = (e && e.type === 'contextmenu');
+      const isBlankTarget = (anchor.getAttribute('target') === '_blank' || anchor.target === '_blank');
+
+      if (isMiddleClick || isCtrlClick || isContextMenu || isBlankTarget) {
+        chrome.runtime.sendMessage({
+          action: 'allow_user_tab',
+          targetUrl: targetUrl,
+          targetHost: targetHost,
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {}
+  }
+
+  // Intercept user mouse actions at the capture phase for deliberate tab openings
   document.addEventListener('mousedown', function (e) {
-    // Detect intentional user actions to open tabs (middle click or Ctrl/Cmd + click)
     if (e.button === 1 || e.ctrlKey || e.metaKey) {
-      chrome.runtime.sendMessage({ action: 'allow_user_tab' });
+      notifyUserGesture(e, e.target);
+    }
+  }, true);
+
+  document.addEventListener('contextmenu', function (e) {
+    notifyUserGesture(e, e.target);
+  }, true);
+
+  document.addEventListener('auxclick', function (e) {
+    if (e.button === 1) {
+      notifyUserGesture(e, e.target);
     }
   }, true);
 
@@ -220,7 +231,7 @@
           target.style.display = 'none';
           try { target.remove(); } catch (err) {}
 
-          showBlockedToast('FocusGuard Protected', 'Killed invisible overlay. Your click is now safe.');
+          // Silently record blocked event in background
           chrome.runtime.sendMessage({
             action: 'record_blocked',
             domain: currentHost,
@@ -233,45 +244,37 @@
       }
     }
 
-    // 2. Detect unauthorized external target="_blank" links
+    // 2. Detect unauthorized rogue ad redirect links
     const anchor = e.target.closest('a');
     if (anchor) {
       const href = anchor.getAttribute('href') || anchor.href;
-      const target = anchor.getAttribute('target') || anchor.target;
 
-      // If user did NOT intentionally middle-click or Ctrl-click
-      const isDeliberate = (e.button === 1 || e.ctrlKey || e.metaKey);
+      // Check if clicked link targets a known rogue ad/redirect signature
+      if (isAdUrl(href)) {
+        console.warn('[FocusGuard] Blocked ad redirect click on link:', href);
 
-      if (!isDeliberate && target === '_blank' && href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-        try {
-          const targetUrl = new URL(href, window.location.href);
-          // If destination domain is external (different from current site)
-          if (targetUrl.hostname && targetUrl.hostname !== currentHost) {
-            console.warn('[FocusGuard] Blocked external redirect click on link:', href);
+        if (settings.mode === 'block_and_close') {
+          // Completely stop link navigation to ad silently
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
 
-            if (settings.mode === 'block_and_close') {
-              // Completely stop link navigation
-              e.preventDefault();
-              e.stopPropagation();
-              e.stopImmediatePropagation();
-
-              showBlockedToast('FocusGuard Protected', 'Blocked external redirect link.');
-              chrome.runtime.sendMessage({
-                action: 'record_blocked',
-                domain: currentHost,
-                reason: 'Blocked external redirect link click.'
-              });
-              return;
-            } else if (settings.mode === 'keep_focus') {
-              // In keep_focus mode, background will lock focus to main tab
-              chrome.runtime.sendMessage({
-                action: 'record_blocked',
-                domain: currentHost,
-                reason: 'Redirect opened; focus locked to main tab.'
-              });
-            }
-          }
-        } catch (err) {}
+          chrome.runtime.sendMessage({
+            action: 'record_blocked',
+            domain: currentHost,
+            reason: 'Blocked external ad redirect link click.'
+          });
+          return;
+        } else if (settings.mode === 'keep_focus') {
+          chrome.runtime.sendMessage({
+            action: 'record_blocked',
+            domain: currentHost,
+            reason: 'Redirect opened; focus locked to main tab.'
+          });
+        }
+      } else {
+        // Legitimate link clicked by user: allow navigation and inform background
+        notifyUserGesture(e, anchor);
       }
     }
   }, true); // useCapture = true guarantees FocusGuard executes before page handlers

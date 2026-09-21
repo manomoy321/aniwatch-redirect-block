@@ -458,13 +458,13 @@
         <div class="feature-card-header">
           <div class="feature-card-icon">⏭️</div>
           <div>
-            <h3 class="feature-card-title">3. Auto Next Episode</h3>
-            <p class="feature-card-desc">Simulates video completion to trigger FocusGuard's 3-second next episode countdown toast.</p>
+            <h3 class="feature-card-title">3. Auto Next Episode (0s Instant)</h3>
+            <p class="feature-card-desc">Simulates video completion to trigger instant (0-second delay) transition to the next episode.</p>
           </div>
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn-trigger" id="btn-test-end-video">
-            Simulate Video End
+            Simulate Video End (Auto-Next)
           </button>
           <button class="btn-next btn-trigger" id="sim-next-ep-btn" style="display: none;">
             Episode 02
@@ -472,12 +472,65 @@
         </div>
       </div>
 
-      <!-- Feature 4: Keyboard Shortcuts Test -->
+      <!-- Feature 4: Auto-Select English (DUB) & Server Continuity Engine -->
+      <div class="feature-card" style="grid-column: 1 / -1;">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🌐</div>
+          <div>
+            <h3 class="feature-card-title">4. Auto-Select English (DUB) & Server Continuity Engine</h3>
+            <p class="feature-card-desc">Simulates real Aniwatch / HiAnime layout: SUB and DUB categories both contain buttons with identical names (e.g. <code>vidsrc</code>). FocusGuard scopes strictly to DUB, selects <code>vidsrc</code> under DUB, and remembers your selection across all episodes.</p>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;" id="sim-server-container">
+          <!-- Category 1: SUB Servers -->
+          <div class="servers-sub-row" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; width: 55px; letter-spacing: 0.05em;">SUB (JP):</span>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn-trigger server-item active" data-type="sub" data-server="vidsrc" id="sub-server-vidsrc" style="width: auto; padding: 4px 12px; font-size: 12px;">vidsrc</button>
+              <button class="btn-trigger server-item" data-type="sub" data-server="megacloud" id="sub-server-megacloud" style="width: auto; padding: 4px 12px; font-size: 12px;">megacloud</button>
+              <button class="btn-trigger server-item" data-type="sub" data-server="vidstreaming" id="sub-server-vidstreaming" style="width: auto; padding: 4px 12px; font-size: 12px;">vidstreaming</button>
+            </div>
+          </div>
+
+          <!-- Category 2: DUB Servers -->
+          <div class="servers-dub" style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(16, 185, 129, 0.06); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.25);">
+            <button class="btn-trigger server-tab active" data-type="dub" id="sim-server-dub-tab" style="width: auto; padding: 4px 10px; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.5); color: #34d399; letter-spacing: 0.05em;">DUB</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <button class="btn-trigger server-item" data-type="dub" data-server="vidsrc" id="dub-server-vidsrc" style="width: auto; padding: 4px 12px; font-size: 12px;">vidsrc</button>
+              <button class="btn-trigger server-item" data-type="dub" data-server="megacloud" id="dub-server-megacloud" style="width: auto; padding: 4px 12px; font-size: 12px;">megacloud</button>
+              <button class="btn-trigger server-item" data-type="dub" data-server="vidstreaming" id="dub-server-vidstreaming" style="width: auto; padding: 4px 12px; font-size: 12px;">vidstreaming</button>
+              <span id="sim-server-memory-status" style="font-size: 11px; color: #10b981; font-weight: 600; margin-left: 8px;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature 5: Safe New Tab vs Ad Redirect -->
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🗂️</div>
+          <div>
+            <h3 class="feature-card-title">5. Safe Tab Opening vs Ad Redirects</h3>
+            <p class="feature-card-desc">User-initiated new tabs stay open without forceful close; only rogue ad redirects get blocked.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <a href="https://example.com" target="_blank" class="btn-trigger" id="test-legit-tab" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; width: auto; padding: 6px 14px;">
+            Open Legitimate New Tab (User Action)
+          </a>
+          <button class="btn-trigger" id="test-ad-redirect" style="width: auto; padding: 6px 14px;">
+            Simulate Ad Redirect (Auto-Blocked)
+          </button>
+        </div>
+      </div>
+
+      <!-- Feature 6: Keyboard Shortcuts Test -->
       <div class="feature-card">
         <div class="feature-card-header">
           <div class="feature-card-icon">⌨️</div>
           <div>
-            <h3 class="feature-card-title">4. Keyboard Shortcuts</h3>
+            <h3 class="feature-card-title">6. Keyboard Shortcuts</h3>
             <p class="feature-card-desc">Press <span class="key-badge">Space</span> to Play/Pause, <span class="key-badge">←/→</span> to Seek, <span class="key-badge">↑/↓</span> for Volume, <span class="key-badge">F</span> for Fullscreen, <span class="key-badge">M</span> to Mute, <span class="key-badge">S/O</span> to Skip.</p>
           </div>
         </div>
@@ -487,24 +540,24 @@
         </div>
       </div>
 
-      <!-- Feature 5: Typing Safety Exclusion Test -->
+      <!-- Feature 7: Typing Safety Exclusion Test -->
       <div class="feature-card">
         <div class="feature-card-header">
           <div class="feature-card-icon">💬</div>
           <div>
-            <h3 class="feature-card-title">5. Typing Safety Exclusion</h3>
+            <h3 class="feature-card-title">7. Typing Safety Exclusion</h3>
             <p class="feature-card-desc">Type inside this input: pressing Space or M must NOT pause/mute the video!</p>
           </div>
         </div>
         <input type="text" class="typing-test-box" placeholder="Type comments here (shortcuts won't trigger)..." id="test-typing-input">
       </div>
 
-      <!-- Feature 6: Redirect Vectors -->
+      <!-- Feature 8: Redirect Vectors -->
       <div class="feature-card">
         <div class="feature-card-header">
           <div class="feature-card-icon">🛡️</div>
           <div>
-            <h3 class="feature-card-title">6. Redirect Protections</h3>
+            <h3 class="feature-card-title">8. Redirect Protections</h3>
             <p class="feature-card-desc">Verify rogue <code>window.open</code> and synthetic <code>a.click()</code> blocks.</p>
           </div>
         </div>
@@ -534,6 +587,28 @@
           <button class="btn-trigger" id="test-sc-voldown" style="width: auto; padding: 6px 12px; font-size: 12px;">🔉 Vol- [↓]</button>
           <button class="btn-trigger" id="test-sc-speed" style="width: auto; padding: 6px 12px; font-size: 12px;">⚡ Cycle Speed [[ ]]</button>
           <button class="btn-trigger" id="test-sc-fs" style="width: auto; padding: 6px 12px; font-size: 12px;">⛶ Fullscreen [F]</button>
+        </div>
+      </div>
+
+      <!-- Feature 9: Smooth Playback & Video Caching Monitor -->
+      <div class="feature-card" style="grid-column: 1 / -1; background: rgba(6, 182, 212, 0.08); border-color: rgba(6, 182, 212, 0.3);">
+        <div class="feature-card-header">
+          <div class="feature-card-icon" style="background: rgba(6, 182, 212, 0.25);">🚀</div>
+          <div>
+            <h3 class="feature-card-title">9. Smooth Playback & Aggressive Video Buffer Engine</h3>
+            <p class="feature-card-desc">Monitors video preload status, buffer ahead caching (3–10 minutes ahead), and GPU hardware acceleration layer compositing to guarantee stutter-free playback.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;" id="buffer-metrics-display">
+          <div style="padding: 6px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px;">
+            <span style="color: #94a3b8;">Preload Mode:</span> <strong style="color: #38bdf8;" id="metric-preload">auto</strong>
+          </div>
+          <div style="padding: 6px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px;">
+            <span style="color: #94a3b8;">Buffered Ahead:</span> <strong style="color: #34d399;" id="metric-buffer-ahead">Cached & Ready (3m+)</strong>
+          </div>
+          <div style="padding: 6px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px;">
+            <span style="color: #94a3b8;">GPU Compositing:</span> <strong style="color: #a78bfa;">translateZ(0) Active</strong>
+          </div>
         </div>
       </div>
     </div>
@@ -775,6 +850,49 @@
       a.style.display = 'none';
       a.click();
     });
+
+    // Server selection simulation with duplicate button disambiguation & continuity
+    const allSimServerBtns = document.querySelectorAll('#sim-server-container .server-item');
+    const simDubTab = document.getElementById('sim-server-dub-tab');
+    const memoryStatus = document.getElementById('sim-server-memory-status');
+
+    allSimServerBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = (btn.getAttribute('data-type') || 'sub').toUpperCase();
+        const server = (btn.getAttribute('data-server') || btn.textContent || '').trim();
+
+        // Clear active state on all buttons in this container
+        allSimServerBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        if (memoryStatus) {
+          memoryStatus.textContent = `Active: ${type} • ${server} (Persisted & Continuous)`;
+        }
+        logEvent('ACTION', `🌐 Server Selected: ${type} • ${server} (FocusGuard auto-selection active)`);
+      });
+    });
+
+    if (simDubTab) {
+      simDubTab.addEventListener('click', () => {
+        logEvent('ACTION', 'Category Tab switched to DUB (English)');
+      });
+    }
+
+    // Safe new tab vs ad redirect handlers
+    const legitTabLink = document.getElementById('test-legit-tab');
+    if (legitTabLink) {
+      legitTabLink.addEventListener('click', () => {
+        logEvent('INFO', 'User clicked legitimate link. FocusGuard allows user-initiated new tabs.');
+      });
+    }
+
+    const testAdRedirectBtn = document.getElementById('test-ad-redirect');
+    if (testAdRedirectBtn) {
+      testAdRedirectBtn.addEventListener('click', () => {
+        logEvent('ATTEMPT', 'Simulating rogue ad redirect tab to adsterra/popads...');
+        window.open('https://popads-adsterra-traffic.com/landing?zoneid=99281', '_blank');
+      });
+    }
 
     document.getElementById('btn-clear-console').addEventListener('click', () => {
       consoleLog.innerHTML = '';
