@@ -163,7 +163,217 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  // Video Player Suite: Download video with custom episode filename
+  if (message.action === 'download_video') {
+    const downloadUrl = message.url;
+    const downloadFilename = message.filename || 'Episode_Video.mp4';
+
+    if (!downloadUrl) {
+      sendResponse({ success: false, error: 'No download URL specified.' });
+      return false;
+    }
+
+    try {
+      const downloadOptions = {
+        url: downloadUrl,
+        filename: downloadFilename,
+        saveAs: false,
+        conflictAction: 'uniquify'
+      };
+
+      if (message.embedUrl && (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://'))) {
+        downloadOptions.headers = [
+          { name: 'Referer', value: message.embedUrl }
+        ];
+      }
+
+      chrome.downloads.download(downloadOptions, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[FocusGuard Background] Video download error:', chrome.runtime.lastError.message);
+          sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          console.log('[FocusGuard Background] Download initiated successfully. ID:', downloadId, 'File:', downloadFilename);
+          sendResponse({ success: true, downloadId: downloadId });
+        }
+      });
+    } catch (e) {
+      console.error('[FocusGuard Background] Download exception:', e);
+      sendResponse({ success: false, error: e.message });
+    }
+    return true;
+  }
+
+  // Stream Resource Proxy: Bypasses CDN Referer / Origin 403 checks
+  if (message.action === 'fetch_stream_data') {
+    const targetUrl = message.url;
+    const embedUrl = message.embedUrl || '';
+    const asBinary = !!message.asBinary;
+
+    if (!targetUrl) {
+      sendResponse({ success: false, error: 'No stream target URL specified.' });
+      return false;
+    }
+
+    (async () => {
+      let ruleSet = false;
+      try {
+        if (embedUrl) {
+          await setStreamBypassHeaders(embedUrl, targetUrl);
+          ruleSet = true;
+        }
+
+        const res = await fetch(targetUrl, { method: 'GET', cache: 'no-cache' });
+        if (!res.ok) {
+          sendResponse({ success: false, status: res.status, error: `Playlist HTTP ${res.status}` });
+          return;
+        }
+
+        if (asBinary) {
+          const buffer = await res.arrayBuffer();
+          const base64 = arrayBufferToBase64(buffer);
+          sendResponse({ success: true, base64: base64, status: res.status });
+        } else {
+          const text = await res.text();
+          sendResponse({ success: true, text: text, status: res.status });
+        }
+      } catch (err) {
+        console.warn('[FocusGuard Background] fetch_stream_data error:', err);
+        sendResponse({ success: false, error: err.message });
+      } finally {
+        if (ruleSet) {
+          await clearStreamBypassHeaders();
+        }
+      }
+    })();
+
+    return true;
+  }
 });
+
+// Stream Bypass Engine (Eliminates HTTP 403 Forbidden on CDNs like MegaCloud/RapidCloud/Quavex)
+const STREAM_BYPASS_RULE_ID = 9001;
+const STREAM_BYPASS_MAX_RULES = 15;
+let activeStreamBypassCount = 0;
+let streamBypassClearTimer = null;
+
+// Clean up any lingering stream bypass DNR rules on startup so they never interfere with regular playback
+if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
+  try {
+    const startupRuleIds = Array.from({ length: STREAM_BYPASS_MAX_RULES }, (_, i) => STREAM_BYPASS_RULE_ID + i);
+    chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: startupRuleIds
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+async function setStreamBypassHeaders(embedUrl, targetUrl) {
+  if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) return;
+  if (!embedUrl && !targetUrl) return;
+
+  if (streamBypassClearTimer) {
+    clearTimeout(streamBypassClearTimer);
+    streamBypassClearTimer = null;
+  }
+  activeStreamBypassCount++;
+
+  try {
+    let cleanOrigin = '';
+    let cleanReferer = '';
+
+    const targetUrlStr = (targetUrl || '').toLowerCase();
+    const embedUrlStr = (embedUrl || '').toLowerCase();
+
+    if (targetUrlStr.includes('quavex') || targetUrlStr.includes('nexabloom') || targetUrlStr.includes('megaplay') || embedUrlStr.includes('megaplay') || embedUrlStr.includes('1anime')) {
+      cleanOrigin = 'https://megaplay.buzz';
+      cleanReferer = 'https://megaplay.buzz/';
+    } else if (targetUrlStr.includes('megacloud') || embedUrlStr.includes('megacloud')) {
+      cleanOrigin = 'https://megacloud.tv';
+      cleanReferer = 'https://megacloud.tv/';
+    } else if (targetUrlStr.includes('rapid-cloud') || embedUrlStr.includes('rapid-cloud')) {
+      cleanOrigin = 'https://rapid-cloud.co';
+      cleanReferer = 'https://rapid-cloud.co/';
+    } else if (embedUrl) {
+      try {
+        const u = new URL(embedUrl);
+        cleanOrigin = u.origin;
+        cleanReferer = u.origin + '/';
+      } catch (e) {}
+    }
+
+    if (!cleanOrigin) {
+      cleanOrigin = 'https://megaplay.buzz';
+      cleanReferer = 'https://megaplay.buzz/';
+    }
+
+    // List of streaming domains to bypass
+    const domainsToBypass = ['quavex.top', 'nexabloom.top', 'megaplay.buzz', '1anime.site', 'megacloud.tv', 'rapid-cloud.co'];
+    if (targetUrl) {
+      try {
+        const tHost = new URL(targetUrl).hostname;
+        if (tHost && !domainsToBypass.includes(tHost)) {
+          domainsToBypass.push(tHost);
+        }
+      } catch (e) {}
+    }
+
+    const rules = domainsToBypass.slice(0, STREAM_BYPASS_MAX_RULES).map((domain, index) => ({
+      id: STREAM_BYPASS_RULE_ID + index,
+      priority: 100,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: [
+          { header: 'Referer', operation: 'set', value: cleanReferer },
+          { header: 'Origin', operation: 'set', value: cleanOrigin },
+          { header: 'User-Agent', operation: 'set', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+        ]
+      },
+      condition: {
+        urlFilter: `||${domain}`,
+        resourceTypes: ['xmlhttprequest', 'media', 'other']
+      }
+    }));
+
+    const ruleIdsToRemove = Array.from({ length: STREAM_BYPASS_MAX_RULES }, (_, i) => STREAM_BYPASS_RULE_ID + i);
+
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: ruleIdsToRemove,
+      addRules: rules
+    });
+  } catch (err) {
+    console.warn('[FocusGuard Background] DNR rule error:', err);
+  }
+}
+
+async function clearStreamBypassHeaders() {
+  activeStreamBypassCount = Math.max(0, activeStreamBypassCount - 1);
+  if (activeStreamBypassCount > 0) {
+    return; // Other segment fetches are still active!
+  }
+
+  if (streamBypassClearTimer) clearTimeout(streamBypassClearTimer);
+  streamBypassClearTimer = setTimeout(async () => {
+    if (activeStreamBypassCount > 0) return;
+    if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) return;
+    try {
+      const ruleIdsToRemove = Array.from({ length: STREAM_BYPASS_MAX_RULES }, (_, i) => STREAM_BYPASS_RULE_ID + i);
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: ruleIdsToRemove
+      });
+    } catch (e) {}
+    streamBypassClearTimer = null;
+  }, 3000);
+}
+
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 // CORE PROTECTION: Handle new tab creation
 // Allows user to open legitimate new tabs freely without closing them forcefully;

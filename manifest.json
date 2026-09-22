@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Aniwatch Redirect Blocker - FocusGuard",
-  "version": "1.0.0",
-  "description": "Stops unwanted click redirects, kills invisible clickjack overlays, blocks rogue window.open popups, and locks focus to your current tab.",
+  "name": "Aniwatch Episode Downloader & Redirect Blocker - FocusGuard",
+  "short_name": "Aniwatch Downloader",
+  "version": "1.1.0",
+  "description": "Aniwatch Episode Downloader - Download anime episodes in 1080p, 720p, and 480p from Aniwatch and HiAnime. Blocks redirects, auto-selects English DUB, skips intros, and locks tab focus.",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "downloads",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -32,7 +35,7 @@
   ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "FocusGuard Settings",
+    "default_title": "FocusGuard - Aniwatch Episode Downloader",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

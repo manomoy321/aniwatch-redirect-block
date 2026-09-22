@@ -337,3 +337,339 @@ iframe[src*="stream"],
   will-change: transform !important;
   image-rendering: -webkit-optimize-contrast !important;
 }
+
+/* ==========================================================================
+   FocusGuard - Cyber-Sleek Video Player Download Button
+   Glassmorphic interactive download trigger mounted directly on the player
+   ========================================================================== */
+
+.fg-download-btn-host {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  z-index: 2147483640 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  pointer-events: auto !important;
+  transition: opacity 0.25s ease, transform 0.25s ease !important;
+}
+
+/* Auto-hide when player is playing and mouse is inactive */
+.fg-download-btn-host.fg-btn-autohide {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(-4px) !important;
+}
+
+.fg-download-btn-host:hover,
+.fg-download-btn-host.fg-btn-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
+}
+
+.fg-player-download-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 15px !important;
+  background: rgba(11, 15, 25, 0.88) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  border-radius: 9999px !important;
+  color: #f8fafc !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.6), 
+    0 0 16px rgba(16, 185, 129, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  transition: 
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.fg-player-download-btn:hover {
+  background: rgba(16, 185, 129, 0.22) !important;
+  border-color: #34d399 !important;
+  color: #ffffff !important;
+  box-shadow: 
+    0 12px 30px rgba(0, 0, 0, 0.7), 
+    0 0 24px rgba(52, 211, 153, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  transform: translateY(-2px) scale(1.03) !important;
+}
+
+.fg-player-download-btn:active {
+  transform: translateY(0) scale(0.97) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+.fg-player-download-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #34d399 !important;
+  font-size: 14px !important;
+  transition: transform 0.2s ease !important;
+}
+
+.fg-player-download-btn:hover .fg-player-download-icon {
+  transform: translateY(1px) scale(1.1) !important;
+  color: #6ee7b7 !important;
+}
+
+.fg-player-download-label {
+  white-space: nowrap !important;
+  color: #f1f5f9 !important;
+  font-weight: 600 !important;
+}
+
+.fg-player-download-badge {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #6ee7b7 !important;
+  border-radius: 6px !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  margin-left: 2px !important;
+}
+
+/* Downloading active state */
+.fg-player-download-btn.fg-downloading {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border-color: #22d3ee !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 20px rgba(6, 182, 212, 0.4) !important;
+  cursor: wait !important;
+}
+
+.fg-player-download-btn.fg-downloading .fg-player-download-icon {
+  animation: fg-download-pulse 1.2s infinite ease-in-out !important;
+  color: #22d3ee !important;
+}
+
+@keyframes fg-download-pulse {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(3px); opacity: 0.6; }
+}
+
+/* Special HUD styles for download notifications */
+.fg-hud-badge.fg-hud-download {
+  border-color: rgba(6, 182, 212, 0.55) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 22px rgba(6, 182, 212, 0.35) !important;
+}
+
+.fg-hud-badge.fg-hud-download .fg-hud-icon {
+  color: #22d3ee !important;
+}
+
+.fg-hud-badge.fg-hud-success {
+  border-color: rgba(16, 185, 129, 0.6) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 24px rgba(16, 185, 129, 0.4) !important;
+}
+
+.fg-hud-badge.fg-hud-success .fg-hud-icon {
+  color: #10b981 !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Download Quality Selector Popover (1080p, 720p, 480p)
+   Displays exact estimated internet/data consumption for each resolution tier
+   ========================================================================== */
+
+.fg-quality-popover {
+  position: absolute !important;
+  top: calc(100% + 8px) !important;
+  right: 0 !important;
+  width: 290px !important;
+  background: rgba(11, 15, 25, 0.96) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  border-radius: 16px !important;
+  box-shadow: 
+    0 16px 40px rgba(0, 0, 0, 0.8), 
+    0 0 24px rgba(16, 185, 129, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  padding: 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  z-index: 2147483647 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  opacity: 0 !important;
+  transform: translateY(-8px) scale(0.96) !important;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.fg-quality-popover.fg-popover-open {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+  pointer-events: auto !important;
+}
+
+.fg-quality-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 2px 4px 6px 4px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.fg-quality-title {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  color: #94a3b8 !important;
+}
+
+.fg-quality-ep-pill {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 7px !important;
+  border-radius: 9999px !important;
+}
+
+.fg-quality-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.fg-quality-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 10px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 10px !important;
+  cursor: pointer !important;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  text-decoration: none !important;
+  outline: none !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.fg-quality-item:hover {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.6) !important;
+  transform: translateX(2px) scale(1.01) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 185, 129, 0.25) !important;
+}
+
+.fg-quality-item-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.fg-quality-tier-badge {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.03em !important;
+  padding: 3px 6px !important;
+  border-radius: 6px !important;
+  line-height: 1 !important;
+}
+
+.fg-tier-1080 {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(6, 182, 212, 0.3)) !important;
+  border: 1px solid rgba(52, 211, 153, 0.6) !important;
+  color: #34d399 !important;
+}
+
+.fg-tier-720 {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+  color: #22d3ee !important;
+}
+
+.fg-tier-480 {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #fbbf24 !important;
+}
+
+.fg-quality-label-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  text-align: left !important;
+}
+
+.fg-quality-tier-name {
+  color: #f8fafc !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.fg-quality-tier-desc {
+  color: #94a3b8 !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+}
+
+.fg-quality-item-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.fg-quality-data-badge {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+  padding: 3px 7px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+}
+
+.fg-quality-item:hover .fg-quality-data-badge {
+  background: rgba(56, 189, 248, 0.22) !important;
+  border-color: #38bdf8 !important;
+  color: #e0f2fe !important;
+}
+
+.fg-quality-arrow {
+  color: #64748b !important;
+  font-size: 11px !important;
+  transition: transform 0.15s ease, color 0.15s ease !important;
+}
+
+.fg-quality-item:hover .fg-quality-arrow {
+  color: #34d399 !important;
+  transform: translateY(1px) !important;
+}
+
+.fg-quality-footer {
+  font-size: 10px !important;
+  color: #64748b !important;
+  text-align: center !important;
+  padding-top: 4px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+

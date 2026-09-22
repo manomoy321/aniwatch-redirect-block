@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FocusGuard Test Lab - Aggressive Redirect & Video Suite Simulator</title>
+  <title>FocusGuard Test Lab - Aniwatch Episode Downloader & Redirect Shield Simulator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -587,6 +587,7 @@
           <button class="btn-trigger" id="test-sc-voldown" style="width: auto; padding: 6px 12px; font-size: 12px;">🔉 Vol- [↓]</button>
           <button class="btn-trigger" id="test-sc-speed" style="width: auto; padding: 6px 12px; font-size: 12px;">⚡ Cycle Speed [[ ]]</button>
           <button class="btn-trigger" id="test-sc-fs" style="width: auto; padding: 6px 12px; font-size: 12px;">⛶ Fullscreen [F]</button>
+          <button class="btn-trigger" id="test-sc-download" style="width: auto; padding: 6px 12px; font-size: 12px;">⬇️ Download Ep [D]</button>
         </div>
       </div>
 
@@ -609,6 +610,25 @@
           <div style="padding: 6px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px;">
             <span style="color: #94a3b8;">GPU Compositing:</span> <strong style="color: #a78bfa;">translateZ(0) Active</strong>
           </div>
+        </div>
+      </div>
+
+      <!-- Feature 10: Download Episode Video Engine -->
+      <div class="feature-card" style="grid-column: 1 / -1; background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.35);">
+        <div class="feature-card-header">
+          <div class="feature-card-icon" style="background: rgba(16, 185, 129, 0.25);">⬇️</div>
+          <div>
+            <h3 class="feature-card-title">10. Video Download with Quality Selection (1080p, 720p, 480p) & Internet Estimator</h3>
+            <p class="feature-card-desc">Choose between <strong>1080p</strong>, <strong>720p</strong>, and <strong>480p</strong> with live internet/data calculations (e.g. <code>~380 MB</code>). Resolves CDN HTTP 403 blocks with header rewriting and tags filenames with the episode number and quality.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-trigger" id="btn-test-popover" style="width: auto; padding: 6px 14px; background: rgba(16, 185, 129, 0.2); border-color: #34d399;">Open Quality Selector</button>
+          <button class="btn-trigger" id="btn-test-download-1080" style="width: auto; padding: 6px 14px;">Download 1080p</button>
+          <button class="btn-trigger" id="btn-test-download-720" style="width: auto; padding: 6px 14px;">Download 720p</button>
+          <button class="btn-trigger" id="btn-test-download-480" style="width: auto; padding: 6px 14px;">Download 480p</button>
+          <button class="btn-trigger" id="btn-test-switch-ep2" style="width: auto; padding: 6px 14px;">Switch to Episode 02</button>
+          <span id="download-test-status" style="font-size: 12px; color: #10b981; font-weight: 600;"></span>
         </div>
       </div>
     </div>
@@ -921,6 +941,48 @@
     document.getElementById('test-sc-voldown').addEventListener('click', () => simulateKey('ArrowDown', 'ArrowDown', 40));
     document.getElementById('test-sc-speed').addEventListener('click', () => simulateKey(']', 'BracketRight', 221));
     document.getElementById('test-sc-fs').addEventListener('click', () => simulateKey('f', 'KeyF', 70));
+    document.getElementById('test-sc-download').addEventListener('click', () => simulateKey('d', 'KeyD', 68));
+
+    // Episode Download & Quality Test Handlers
+    const btnPopover = document.getElementById('btn-test-popover');
+    if (btnPopover) {
+      btnPopover.addEventListener('click', () => {
+        const btn = document.getElementById('focusguard-download-btn');
+        if (btn) btn.click();
+        logEvent('ACTION', 'Opened download quality selector popover.');
+      });
+    }
+
+    function triggerTestDownload(quality) {
+      logEvent('ACTION', `Triggered ${quality} episode download test.`);
+      if (typeof window.__focusguard_download_video__ === 'function') {
+        window.__focusguard_download_video__(quality);
+      } else {
+        simulateKey('d', 'KeyD', 68);
+      }
+      const status = document.getElementById('download-test-status');
+      if (status) status.textContent = `✓ ${quality} episode download initiated!`;
+    }
+
+    const btn1080 = document.getElementById('btn-test-download-1080');
+    if (btn1080) btn1080.addEventListener('click', () => triggerTestDownload('1080p'));
+
+    const btn720 = document.getElementById('btn-test-download-720');
+    if (btn720) btn720.addEventListener('click', () => triggerTestDownload('720p'));
+
+    const btn480 = document.getElementById('btn-test-download-480');
+    if (btn480) btn480.addEventListener('click', () => triggerTestDownload('480p'));
+
+    document.getElementById('btn-test-switch-ep2').addEventListener('click', () => {
+      const titleEl = document.querySelector('.player-title');
+      if (titleEl) {
+        titleEl.innerHTML = '<span>🎬</span> Episode 02 - Jujutsu Kaisen (Simulated Player)';
+      }
+      logEvent('INFO', 'Simulated player switched to Episode 02.');
+      window.dispatchEvent(new Event('popstate'));
+      const status = document.getElementById('download-test-status');
+      if (status) status.textContent = 'Switched to Episode 02! Button badge updated to EP 02.';
+    });
   </script>
   <script src="player_controller.js"></script>
 </body>
