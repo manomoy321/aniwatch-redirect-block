@@ -151,6 +151,29 @@ class MockElement {
     return el;
   }
 
+  insertBefore(newChild, refChild) {
+    newChild.parent = this;
+    newChild.parentElement = this;
+    const idx = refChild ? this.children.indexOf(refChild) : -1;
+    if (idx >= 0) {
+      this.children.splice(idx, 0, newChild);
+    } else {
+      this.children.unshift(newChild);
+    }
+    return newChild;
+  }
+
+  prepend(child) {
+    child.parent = this;
+    child.parentElement = this;
+    this.children.unshift(child);
+    return child;
+  }
+
+  get firstChild() {
+    return this.children[0] || null;
+  }
+
   matches() { return false; }
 }
 
@@ -786,7 +809,53 @@ console.log('\n--- Test 16: DUB Server & Iframe /dub Detection ---');
   console.log('✓ DUB Active & Clean Click Passed: DUB /dub detected and server activated with 1 clean click.');
 }
 
-console.log('\nALL 16 DOWNLOAD, QUALITY, BLOB & ERROR RECOVERY TESTS PASSED SUCCESSFULLY! ✓');
+console.log('\n--- Test 17: Top-of-Player Download Progress Bar Engine (Percentage Indication) ---');
+{
+  const { mountTopProgressBar, updateTopProgressBar } = require('../player_controller.js');
+
+  const playerContainer = new MockElement('div', '', { id: 'player-wrapper', class: 'player-container' }, mockGlobalDoc.body);
+  const bar = mountTopProgressBar(playerContainer);
+
+  assert.ok(bar, 'Top-of-player progress bar element must be created');
+  assert.strictEqual(bar.attrs.id, 'focusguard-player-progress', 'Progress bar must have #focusguard-player-progress id');
+  assert.ok(bar.classList.contains('fg-player-top-progress'), 'Must contain .fg-player-top-progress class');
+
+  // 1. Initial State
+  const fillEl = bar.querySelector('#fg-top-progress-fill');
+  const pctEl = bar.querySelector('#fg-top-progress-pct');
+  const titleEl = bar.querySelector('#fg-top-progress-title');
+  const segsEl = bar.querySelector('#fg-top-progress-segments');
+
+  assert.ok(fillEl, 'Progress fill track must exist');
+  assert.ok(pctEl, 'Percentage badge must exist');
+  assert.ok(titleEl, 'Title element must exist');
+  assert.ok(segsEl, 'Segment counter must exist');
+
+  // 2. Active Download Progress at 50%
+  updateTopProgressBar(50, 50, 100, '1080p', '01', false);
+  assert.ok(bar.classList.contains('fg-progress-visible'), 'Bar must be made visible on progress update');
+  assert.strictEqual(pctEl.textContent, '50%', 'Percentage badge must reflect 50%');
+  assert.strictEqual(fillEl.style.width, '50%', 'Fill track width must be 50%');
+  assert.strictEqual(titleEl.textContent, 'Downloading Ep. 01 [1080p]...', 'Title must indicate episode and quality');
+  assert.strictEqual(segsEl.textContent, '50/100', 'Segment count must show completed / total');
+
+  // 3. Incremental Update at 85%
+  updateTopProgressBar(85, 85, 100, '1080p', '01', false);
+  assert.strictEqual(pctEl.textContent, '85%', 'Percentage badge must increment to 85%');
+  assert.strictEqual(fillEl.style.width, '85%', 'Fill track width must increment to 85%');
+  assert.strictEqual(segsEl.textContent, '85/100');
+
+  // 4. Download Complete at 100%
+  updateTopProgressBar(100, 100, 100, '1080p', '01', true);
+  assert.ok(bar.classList.contains('fg-progress-success'), 'Must acquire .fg-progress-success on completion');
+  assert.strictEqual(pctEl.textContent, '100%', 'Must show 100% on completion');
+  assert.strictEqual(fillEl.style.width, '100%', 'Track fill must be 100%');
+  assert.ok(titleEl.textContent.includes('Download Complete'), 'Title must announce completion');
+
+  console.log('✓ Top-of-Player Progress Bar Test Passed: Live percentage, progress fill, segment counter, and success state verified.');
+}
+
+console.log('\nALL 17 DOWNLOAD, QUALITY, BLOB, ON-PLAYER PROGRESS & RECOVERY TESTS PASSED SUCCESSFULLY! ✓');
 process.exit(0);
 
 

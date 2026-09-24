@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aniwatch Episode Downloader & Redirect Blocker • FocusGuard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Aniwatch Episode Downloader • FocusGuard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -15,227 +15,90 @@
     <header class="app-header">
       <div class="brand-group">
         <div class="brand-icon-wrapper">
-          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <polyline points="9 12 11 14 15 10"/>
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           <div class="brand-glow"></div>
         </div>
         <div class="brand-info">
-          <h1 class="brand-title">FocusGuard</h1>
-          <div class="domain-badge" id="current-domain-display" title="Current Active Domain">
+          <h1 class="brand-title">Aniwatch Downloader</h1>
+          <div class="domain-badge" id="current-domain-display" title="Active Page Domain">
             <span class="pulse-dot"></span>
-            <span id="domain-text">Detecting site...</span>
+            <span id="domain-text">Detecting player...</span>
           </div>
         </div>
       </div>
       <div class="status-indicator-pill" id="status-pill">
-        <span class="status-text" id="status-text">ACTIVE</span>
+        <span class="status-text" id="status-text">ONLINE</span>
       </div>
     </header>
 
-    <!-- Master Switch Hero Card -->
-    <section class="hero-card" id="hero-card">
-      <div class="hero-info">
-        <h2 class="hero-title">Protection Shield</h2>
-        <p class="hero-subtitle" id="hero-status-desc">Neutralizing click redirects & pop-unders</p>
-      </div>
-      <label class="switch-toggle" for="master-toggle">
-        <input type="checkbox" id="master-toggle" checked>
-        <span class="slider round"></span>
-      </label>
-    </section>
-
-    <!-- Metrics Grid -->
-    <section class="metrics-grid">
-      <div class="metric-card">
-        <span class="metric-label">This Site</span>
-        <div class="metric-value-wrap">
-          <span class="metric-value" id="site-blocked-count">0</span>
-          <span class="metric-unit">blocked</span>
-        </div>
-      </div>
-      <div class="metric-card">
-        <span class="metric-label">Lifetime</span>
-        <div class="metric-value-wrap">
-          <span class="metric-value" id="total-blocked-count">0</span>
-          <span class="metric-unit">trapped</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Configuration Options -->
-    <section class="settings-section">
-      <h3 class="section-heading">Redirect Behavior</h3>
-      
-      <!-- Mode Segmented Switch -->
-      <div class="mode-selector-card">
-        <div class="mode-selector-header">
-          <span class="mode-label">When a popup triggers:</span>
-        </div>
-        <div class="segmented-control" id="mode-segmented-control">
-          <button type="button" class="segment-btn active" id="btn-mode-block" data-mode="block_and_close">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            Block & Close
-          </button>
-          <button type="button" class="segment-btn" id="btn-mode-focus" data-mode="keep_focus">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M14 9l3 3-3 3"/></svg>
-            Lock Main Tab
-          </button>
-        </div>
-      </div>
-
-      <!-- Feature Toggles -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Kill Clickjack Overlays</span>
-          <span class="feature-desc">Destroys transparent click-stealing layers over players</span>
-        </div>
-        <label class="switch-toggle-sm" for="toggle-overlays">
-          <input type="checkbox" id="toggle-overlays" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
-
-      <!-- Whitelist Button -->
-      <div class="action-card">
-        <button type="button" class="btn-action" id="btn-toggle-whitelist">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
-          <span id="whitelist-btn-text">Pause Protection on this Site</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Video Player Enhancements Section -->
-    <section class="settings-section">
+    <!-- Dedicated Episode Downloader Section (Mobile & Orion iOS Optimized) -->
+    <section class="download-card-section" id="popup-download-section">
       <div class="section-header-row">
-        <h3 class="section-heading">Video Player Suite</h3>
-        <button type="button" class="btn-shortcuts-badge" id="btn-toggle-shortcuts" title="View Keyboard Shortcuts">
-          ⌨️ Shortcuts
-        </button>
+        <h2 class="section-heading">Download Episode</h2>
+        <span class="badge-pill ep-badge-pill" id="popup-ep-badge">EP 01</span>
       </div>
 
-      <!-- Keyboard Controls Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Keyboard Controls</span>
-          <span class="feature-desc">Space, Arrows, F, M, S, O & speed shortcuts</span>
+      <div class="download-card" id="popup-download-card">
+        <div class="download-show-header">
+          <div class="show-meta-text">
+            <span class="show-title" id="popup-show-title">Anime Episode Stream</span>
+            <span class="show-filename" id="popup-show-filename">Ready to download episode file</span>
+          </div>
         </div>
-        <label class="switch-toggle-sm" for="toggle-keyboard">
-          <input type="checkbox" id="toggle-keyboard" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
 
-      <!-- Fullscreen Fix Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Fullscreen Enforcer</span>
-          <span class="feature-desc">Forces iframe permissions & double-click fullscreen</span>
-        </div>
-        <label class="switch-toggle-sm" for="toggle-fullscreen">
-          <input type="checkbox" id="toggle-fullscreen" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
+        <div class="quality-tier-label">Choose Resolution Tier:</div>
 
-      <!-- Auto Play Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Auto Play Video</span>
-          <span class="feature-desc">Starts playback automatically on player load</span>
+        <div class="quality-tier-buttons" id="popup-quality-btns">
+          <button type="button" class="btn-quality-dl q-1080" id="btn-dl-1080" data-quality="1080p">
+            <div class="q-btn-left">
+              <span class="q-badge">1080p</span>
+              <span class="q-label">Full HD</span>
+            </div>
+            <span class="q-data">~832 MB</span>
+          </button>
+          <button type="button" class="btn-quality-dl q-720" id="btn-dl-720" data-quality="720p">
+            <div class="q-btn-left">
+              <span class="q-badge">720p</span>
+              <span class="q-label">HD</span>
+            </div>
+            <span class="q-data">~416 MB</span>
+          </button>
+          <button type="button" class="btn-quality-dl q-480" id="btn-dl-480" data-quality="480p">
+            <div class="q-btn-left">
+              <span class="q-badge">480p</span>
+              <span class="q-label">Data Saver</span>
+            </div>
+            <span class="q-data">~191 MB</span>
+          </button>
         </div>
-        <label class="switch-toggle-sm" for="toggle-autoplay">
-          <input type="checkbox" id="toggle-autoplay" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
 
-      <!-- Auto Skip Intro Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Auto Skip Intro (OP)</span>
-          <span class="feature-desc">Auto-clicks Skip Intro / 85s anime openings</span>
-        </div>
-        <label class="switch-toggle-sm" for="toggle-skip-intro">
-          <input type="checkbox" id="toggle-skip-intro" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
-
-      <!-- Auto Skip Outro Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Auto Skip Outro (ED)</span>
-          <span class="feature-desc">Auto-clicks Skip Outro / ending credits</span>
-        </div>
-        <label class="switch-toggle-sm" for="toggle-skip-outro">
-          <input type="checkbox" id="toggle-skip-outro" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
-
-      <!-- Auto-Select English (ENG) / All-Time DUB Toggle -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Always Select DUB (English)</span>
-          <span class="feature-desc">All time auto-selects DUB server across all episodes</span>
-        </div>
-        <label class="switch-toggle-sm" for="toggle-eng">
-          <input type="checkbox" id="toggle-eng" checked>
-          <span class="slider-sm round"></span>
-        </label>
-      </div>
-
-      <!-- Auto Play Next Episode Toggle & Delay -->
-      <div class="feature-item">
-        <div class="feature-info">
-          <span class="feature-name">Auto Next Episode</span>
-          <span class="feature-desc">Plays next episode automatically</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <select id="select-next-delay" class="fg-select-sm" title="Next Episode Delay">
-            <option value="0" selected>0s (Instant)</option>
-            <option value="1">1s</option>
-            <option value="3">3s</option>
-            <option value="5">5s</option>
-          </select>
-          <label class="switch-toggle-sm" for="toggle-autonext">
-            <input type="checkbox" id="toggle-autonext" checked>
-            <span class="slider-sm round"></span>
-          </label>
-        </div>
-      </div>
-
-
-      <!-- Shortcuts Cheatsheet Card (Collapsible & Interactive) -->
-      <div class="shortcuts-panel" id="shortcuts-panel" style="display: none;">
-        <div class="shortcuts-header">
-          <span class="shortcuts-title">Live Shortcuts Matrix</span>
-          <span class="shortcuts-hint">Click any row to test/trigger action</span>
-        </div>
-        <div class="shortcuts-grid">
-          <div class="shortcut-row interactive" data-cmd="toggle_play" title="Trigger Play/Pause"><span class="shortcut-key">Space / K</span><span class="shortcut-action">Play / Pause</span><span class="shortcut-run-tag">Run ⏯</span></div>
-          <div class="shortcut-row interactive" data-cmd="seek_backward" title="Trigger Rewind"><span class="shortcut-key">← / J</span><span class="shortcut-action">Rewind 5s</span><span class="shortcut-run-tag">Run ⏪</span></div>
-          <div class="shortcut-row interactive" data-cmd="seek_forward" title="Trigger Forward"><span class="shortcut-key">→ / L</span><span class="shortcut-action">Forward 5s</span><span class="shortcut-run-tag">Run ⏩</span></div>
-          <div class="shortcut-row interactive" data-cmd="skip_intro" title="Trigger Skip Intro"><span class="shortcut-key">S / I</span><span class="shortcut-action">Skip Intro (+85s)</span><span class="shortcut-run-tag">Run ⚡</span></div>
-          <div class="shortcut-row interactive" data-cmd="skip_outro" title="Trigger Skip Outro"><span class="shortcut-key">O</span><span class="shortcut-action">Skip Outro (+85s)</span><span class="shortcut-run-tag">Run ⚡</span></div>
-          <div class="shortcut-row interactive" data-cmd="volume_down" title="Trigger Volume Down"><span class="shortcut-key">↓</span><span class="shortcut-action">Volume -5%</span><span class="shortcut-run-tag">Run 🔉</span></div>
-          <div class="shortcut-row interactive" data-cmd="volume_up" title="Trigger Volume Up"><span class="shortcut-key">↑</span><span class="shortcut-action">Volume +5%</span><span class="shortcut-run-tag">Run 🔊</span></div>
-          <div class="shortcut-row interactive" data-cmd="toggle_mute" title="Trigger Mute"><span class="shortcut-key">M</span><span class="shortcut-action">Mute / Unmute</span><span class="shortcut-run-tag">Run 🔇</span></div>
-          <div class="shortcut-row interactive" data-cmd="speed_up" title="Trigger Speed Up"><span class="shortcut-key">] / &gt;</span><span class="shortcut-action">Speed Up</span><span class="shortcut-run-tag">Run ⚡</span></div>
-          <div class="shortcut-row interactive" data-cmd="speed_down" title="Trigger Speed Down"><span class="shortcut-key">[ / &lt;</span><span class="shortcut-action">Speed Down</span><span class="shortcut-run-tag">Run ⚡</span></div>
-          <div class="shortcut-row interactive" data-cmd="toggle_fullscreen" title="Trigger Fullscreen"><span class="shortcut-key">F</span><span class="shortcut-action">Fullscreen</span><span class="shortcut-run-tag">Run ⛶</span></div>
-          <div class="shortcut-row interactive" data-cmd="next_episode" title="Trigger Next Episode"><span class="shortcut-key">N / P</span><span class="shortcut-action">Next Episode</span><span class="shortcut-run-tag">Run ⏭</span></div>
-          <div class="shortcut-row interactive" data-cmd="download_video" title="Download Episode Video"><span class="shortcut-key">D</span><span class="shortcut-action">Download Episode</span><span class="shortcut-run-tag">Run ⬇️</span></div>
+        <!-- Live Download Progress Bar -->
+        <div class="download-status-bar" id="popup-download-status" style="display: none;">
+          <div class="dl-status-header">
+            <span class="dl-status-title" id="popup-dl-status-title">Downloading Stream...</span>
+            <span class="dl-status-percent" id="popup-dl-status-pct">0%</span>
+          </div>
+          <div class="dl-progress-track">
+            <div class="dl-progress-bar" id="popup-dl-progress-bar" style="width: 0%;"></div>
+          </div>
+          <span class="dl-status-text" id="popup-dl-status-text">Fetching segments...</span>
         </div>
       </div>
     </section>
+
+    <!-- Quick Tip Card -->
+    <div class="tip-card">
+      <span class="tip-icon">💡</span>
+      <span class="tip-text">You can also press <kbd class="kbd-badge">D</kbd> or click the <strong>Download</strong> button at the top-right of the video player anytime!</span>
+    </div>
 
     <!-- Footer -->
     <footer class="app-footer">
-      <span class="footer-version">FocusGuard v1.1.0 • Aniwatch Episode Downloader • Manifest V3</span>
-      <button type="button" class="btn-text" id="btn-reset-stats">Reset Counters</button>
+      <span class="footer-version">FocusGuard v1.2.0 • Aniwatch & HiAnime Downloader</span>
     </footer>
   </div>
 

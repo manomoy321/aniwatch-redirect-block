@@ -623,6 +623,7 @@
           </div>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-trigger" id="btn-test-top-progress" style="width: auto; padding: 6px 14px; background: rgba(56, 189, 248, 0.2); border-color: #38bdf8; color: #38bdf8; font-weight: 700;">⚡ Simulate Top Progress Bar (0% → 100%)</button>
           <button class="btn-trigger" id="btn-test-popover" style="width: auto; padding: 6px 14px; background: rgba(16, 185, 129, 0.2); border-color: #34d399;">Open Quality Selector</button>
           <button class="btn-trigger" id="btn-test-download-1080" style="width: auto; padding: 6px 14px;">Download 1080p</button>
           <button class="btn-trigger" id="btn-test-download-720" style="width: auto; padding: 6px 14px;">Download 720p</button>
@@ -972,6 +973,24 @@
 
     const btn480 = document.getElementById('btn-test-download-480');
     if (btn480) btn480.addEventListener('click', () => triggerTestDownload('480p'));
+
+    const btnTopProg = document.getElementById('btn-test-top-progress');
+    if (btnTopProg) {
+      btnTopProg.addEventListener('click', () => {
+        let pct = 0;
+        logEvent('ACTION', 'Simulating top-of-player download progress bar (0% → 100%)...');
+        const interval = setInterval(() => {
+          pct += 5;
+          if (typeof window.__focusguard_update_top_progress__ === 'function') {
+            window.__focusguard_update_top_progress__(pct, pct, 100, '1080p', '01', pct >= 100);
+          }
+          if (pct >= 100) {
+            clearInterval(interval);
+            logEvent('ACTION', '✓ Top-of-player progress bar completed at 100%!');
+          }
+        }, 120);
+      });
+    }
 
     document.getElementById('btn-test-switch-ep2').addEventListener('click', () => {
       const titleEl = document.querySelector('.player-title');
