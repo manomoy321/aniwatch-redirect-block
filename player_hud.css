@@ -1,0 +1,675 @@
+/* ==========================================================================
+   FocusGuard - Player HUD (Heads-Up Display) Stylesheet
+   Cyber-sleek glassmorphic feedback overlay for media controls
+   ========================================================================== */
+
+#focusguard-hud-host {
+  position: fixed !important;
+  top: 40px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 2147483647 !important;
+  pointer-events: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  user-select: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.fg-hud-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px 20px !important;
+  background: rgba(11, 15, 25, 0.88) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 20px rgba(16, 185, 129, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  border-radius: 9999px !important;
+  color: #f8fafc !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  opacity: 0 !important;
+  transform: translateY(-12px) scale(0.94) !important;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+}
+
+.fg-hud-badge.fg-hud-visible {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+}
+
+.fg-hud-badge.fg-hud-hiding {
+  opacity: 0 !important;
+  transform: translateY(-8px) scale(0.96) !important;
+}
+
+.fg-hud-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  color: #34d399 !important;
+}
+
+.fg-hud-text {
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+}
+
+.fg-hud-extra {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+  font-weight: 500 !important;
+  margin-left: 2px !important;
+}
+
+/* Volume bar indicator inside HUD */
+.fg-hud-progress-wrap {
+  width: 70px !important;
+  height: 6px !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+  margin-left: 4px !important;
+}
+
+.fg-hud-progress-fill {
+  height: 100% !important;
+  background: linear-gradient(90deg, #10b981, #06b6d4) !important;
+  border-radius: 4px !important;
+  transition: width 0.15s ease-out !important;
+}
+
+/* Special highlight for Auto-Skip */
+.fg-hud-badge.fg-hud-skip {
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 22px rgba(6, 182, 212, 0.35) !important;
+}
+
+.fg-hud-badge.fg-hud-skip .fg-hud-icon {
+  color: #22d3ee !important;
+}
+
+/* Next Episode Countdown pill */
+.fg-hud-next-countdown {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 16px !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 0 16px rgba(245, 158, 11, 0.25) !important;
+  border-radius: 24px !important;
+  color: #fbbf24 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+.fg-hud-next-cancel {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border: 1px solid rgba(239, 68, 68, 0.4) !important;
+  color: #f87171 !important;
+  padding: 2px 8px !important;
+  border-radius: 12px !important;
+  font-size: 11px !important;
+  margin-left: 6px !important;
+  cursor: pointer !important;
+}
+
+.fg-hud-next-cancel:hover {
+  background: rgba(239, 68, 68, 0.4) !important;
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Theater / Web Fullscreen Mode
+   Zero-permission fallback that fills 100vw x 100vh with flawless presentation
+   ========================================================================== */
+
+body.fg-theater-active,
+html.fg-theater-active {
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.fg-theater-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  z-index: 2147483645 !important;
+  background: #000000 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.fg-theater-fullscreen video,
+video.fg-theater-fullscreen {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+}
+
+.fg-theater-fullscreen iframe,
+iframe.fg-theater-fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+}
+
+.fg-theater-active [class*="player"],
+.fg-theater-active .player-container,
+.fg-theater-active #player {
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Fullscreen Scrollbar Disabler
+   Completely removes and disables scrollbars across native & theater fullscreen
+   ========================================================================== */
+
+:fullscreen,
+:fullscreen * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+:fullscreen::-webkit-scrollbar,
+:fullscreen *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+video::-webkit-media-controls-enclosure {
+  overflow: hidden !important;
+}
+
+html.fg-fullscreen-active,
+body.fg-fullscreen-active,
+body.fg-theater-active,
+html.fg-theater-active,
+body.fg-theater-active *,
+html.fg-theater-active *,
+.fg-theater-fullscreen,
+.fg-theater-fullscreen * {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.fg-fullscreen-active,
+body.fg-fullscreen-active {
+  overflow: hidden !important;
+}
+
+html.fg-fullscreen-active::-webkit-scrollbar,
+body.fg-fullscreen-active::-webkit-scrollbar,
+body.fg-theater-active::-webkit-scrollbar,
+html.fg-theater-active::-webkit-scrollbar,
+.fg-theater-fullscreen::-webkit-scrollbar,
+.fg-theater-fullscreen *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Universal Player & Video Scrollbar Remover
+   Completely removes and disables scrollbars from video players in both
+   normal view and fullscreen mode (HiAnime, Aniwatch, MegaCloud, VidSrc, etc.)
+   ========================================================================== */
+
+iframe[src*="embed"],
+iframe[src*="megacloud"],
+iframe[src*="rapid-cloud"],
+iframe[src*="vidsrc"],
+iframe[src*="stream"],
+iframe#iframe-embed,
+#iframe-embed,
+.player-container,
+#player,
+#watch-player,
+.watching-player,
+.film-player,
+.player-wrapper,
+#player-wrapper,
+.play-video,
+.jwplayer,
+.video-js,
+.art-video-player,
+[class*="player-container"],
+[class*="player-wrapper"],
+[id*="player-wrapper"] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  overflow: hidden !important;
+}
+
+iframe[src*="embed"]::-webkit-scrollbar,
+iframe[src*="megacloud"]::-webkit-scrollbar,
+iframe[src*="rapid-cloud"]::-webkit-scrollbar,
+iframe[src*="vidsrc"]::-webkit-scrollbar,
+iframe[src*="stream"]::-webkit-scrollbar,
+iframe#iframe-embed::-webkit-scrollbar,
+#iframe-embed::-webkit-scrollbar,
+.player-container::-webkit-scrollbar,
+#player::-webkit-scrollbar,
+#watch-player::-webkit-scrollbar,
+.watching-player::-webkit-scrollbar,
+.film-player::-webkit-scrollbar,
+.player-wrapper::-webkit-scrollbar,
+#player-wrapper::-webkit-scrollbar,
+.play-video::-webkit-scrollbar,
+.jwplayer::-webkit-scrollbar,
+.video-js::-webkit-scrollbar,
+.art-video-player::-webkit-scrollbar,
+[class*="player-container"]::-webkit-scrollbar,
+[class*="player-wrapper"]::-webkit-scrollbar,
+[id*="player-wrapper"]::-webkit-scrollbar,
+video::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+html:has(video),
+body:has(video) {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html:has(video)::-webkit-scrollbar,
+body:has(video)::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Smooth Playback & GPU Hardware Acceleration
+   Eliminates dropped frames and stutter during video buffering and rendering
+   ========================================================================== */
+
+video,
+.jw-video,
+.vjs-tech,
+.art-video,
+.dplayer-video,
+iframe[src*="embed"],
+iframe[src*="megacloud"],
+iframe[src*="rapid-cloud"],
+iframe[src*="vidsrc"],
+iframe[src*="stream"],
+.player-container video {
+  transform: translateZ(0) !important;
+  backface-visibility: hidden !important;
+  will-change: transform !important;
+  image-rendering: -webkit-optimize-contrast !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Cyber-Sleek Video Player Download Button
+   Glassmorphic interactive download trigger mounted directly on the player
+   ========================================================================== */
+
+.fg-download-btn-host {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  z-index: 2147483640 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  pointer-events: auto !important;
+  transition: opacity 0.25s ease, transform 0.25s ease !important;
+}
+
+/* Auto-hide when player is playing and mouse is inactive */
+.fg-download-btn-host.fg-btn-autohide {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(-4px) !important;
+}
+
+.fg-download-btn-host:hover,
+.fg-download-btn-host.fg-btn-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
+}
+
+.fg-player-download-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 15px !important;
+  background: rgba(11, 15, 25, 0.88) !important;
+  backdrop-filter: blur(16px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  border-radius: 9999px !important;
+  color: #f8fafc !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.6), 
+    0 0 16px rgba(16, 185, 129, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  transition: 
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.fg-player-download-btn:hover {
+  background: rgba(16, 185, 129, 0.22) !important;
+  border-color: #34d399 !important;
+  color: #ffffff !important;
+  box-shadow: 
+    0 12px 30px rgba(0, 0, 0, 0.7), 
+    0 0 24px rgba(52, 211, 153, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  transform: translateY(-2px) scale(1.03) !important;
+}
+
+.fg-player-download-btn:active {
+  transform: translateY(0) scale(0.97) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+.fg-player-download-icon {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #34d399 !important;
+  font-size: 14px !important;
+  transition: transform 0.2s ease !important;
+}
+
+.fg-player-download-btn:hover .fg-player-download-icon {
+  transform: translateY(1px) scale(1.1) !important;
+  color: #6ee7b7 !important;
+}
+
+.fg-player-download-label {
+  white-space: nowrap !important;
+  color: #f1f5f9 !important;
+  font-weight: 600 !important;
+}
+
+.fg-player-download-badge {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border: 1px solid rgba(16, 185, 129, 0.4) !important;
+  color: #6ee7b7 !important;
+  border-radius: 6px !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  margin-left: 2px !important;
+}
+
+/* Downloading active state */
+.fg-player-download-btn.fg-downloading {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border-color: #22d3ee !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 20px rgba(6, 182, 212, 0.4) !important;
+  cursor: wait !important;
+}
+
+.fg-player-download-btn.fg-downloading .fg-player-download-icon {
+  animation: fg-download-pulse 1.2s infinite ease-in-out !important;
+  color: #22d3ee !important;
+}
+
+@keyframes fg-download-pulse {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(3px); opacity: 0.6; }
+}
+
+/* Special HUD styles for download notifications */
+.fg-hud-badge.fg-hud-download {
+  border-color: rgba(6, 182, 212, 0.55) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 22px rgba(6, 182, 212, 0.35) !important;
+}
+
+.fg-hud-badge.fg-hud-download .fg-hud-icon {
+  color: #22d3ee !important;
+}
+
+.fg-hud-badge.fg-hud-success {
+  border-color: rgba(16, 185, 129, 0.6) !important;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.6), 
+    0 0 24px rgba(16, 185, 129, 0.4) !important;
+}
+
+.fg-hud-badge.fg-hud-success .fg-hud-icon {
+  color: #10b981 !important;
+}
+
+/* ==========================================================================
+   FocusGuard - Download Quality Selector Popover (1080p, 720p, 480p)
+   Displays exact estimated internet/data consumption for each resolution tier
+   ========================================================================== */
+
+.fg-quality-popover {
+  position: absolute !important;
+  top: calc(100% + 8px) !important;
+  right: 0 !important;
+  width: 290px !important;
+  background: rgba(11, 15, 25, 0.96) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  border-radius: 16px !important;
+  box-shadow: 
+    0 16px 40px rgba(0, 0, 0, 0.8), 
+    0 0 24px rgba(16, 185, 129, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  padding: 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  z-index: 2147483647 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  opacity: 0 !important;
+  transform: translateY(-8px) scale(0.96) !important;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.fg-quality-popover.fg-popover-open {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+  pointer-events: auto !important;
+}
+
+.fg-quality-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 2px 4px 6px 4px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.fg-quality-title {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  color: #94a3b8 !important;
+}
+
+.fg-quality-ep-pill {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 7px !important;
+  border-radius: 9999px !important;
+}
+
+.fg-quality-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.fg-quality-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 10px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 10px !important;
+  cursor: pointer !important;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  text-decoration: none !important;
+  outline: none !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.fg-quality-item:hover {
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.6) !important;
+  transform: translateX(2px) scale(1.01) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(16, 185, 129, 0.25) !important;
+}
+
+.fg-quality-item-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.fg-quality-tier-badge {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.03em !important;
+  padding: 3px 6px !important;
+  border-radius: 6px !important;
+  line-height: 1 !important;
+}
+
+.fg-tier-1080 {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(6, 182, 212, 0.3)) !important;
+  border: 1px solid rgba(52, 211, 153, 0.6) !important;
+  color: #34d399 !important;
+}
+
+.fg-tier-720 {
+  background: rgba(6, 182, 212, 0.2) !important;
+  border: 1px solid rgba(34, 211, 238, 0.5) !important;
+  color: #22d3ee !important;
+}
+
+.fg-tier-480 {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #fbbf24 !important;
+}
+
+.fg-quality-label-wrap {
+  display: flex !important;
+  flex-direction: column !important;
+  text-align: left !important;
+}
+
+.fg-quality-tier-name {
+  color: #f8fafc !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.fg-quality-tier-desc {
+  color: #94a3b8 !important;
+  font-size: 10px !important;
+  font-weight: 400 !important;
+}
+
+.fg-quality-item-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.fg-quality-data-badge {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+  padding: 3px 7px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+}
+
+.fg-quality-item:hover .fg-quality-data-badge {
+  background: rgba(56, 189, 248, 0.22) !important;
+  border-color: #38bdf8 !important;
+  color: #e0f2fe !important;
+}
+
+.fg-quality-arrow {
+  color: #64748b !important;
+  font-size: 11px !important;
+  transition: transform 0.15s ease, color 0.15s ease !important;
+}
+
+.fg-quality-item:hover .fg-quality-arrow {
+  color: #34d399 !important;
+  transform: translateY(1px) !important;
+}
+
+.fg-quality-footer {
+  font-size: 10px !important;
+  color: #64748b !important;
+  text-align: center !important;
+  padding-top: 4px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
