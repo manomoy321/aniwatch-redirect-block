@@ -232,6 +232,33 @@
       </div>
     </section>
 
+    <!-- Background Multi-Video Download Queue Section -->
+    <section class="settings-section download-manager-section">
+      <div class="section-header-row">
+        <div class="section-title-wrap">
+          <h3 class="section-heading">Download Queue</h3>
+          <span class="queue-badge" id="queue-count-badge">0 active</span>
+        </div>
+        <div class="queue-header-actions">
+          <button type="button" class="btn-clear-queue" id="btn-clear-queue" title="Clear finished & failed downloads">
+            Clear Finished
+          </button>
+        </div>
+      </div>
+
+      <div class="download-queue-container" id="download-queue-container">
+        <div class="queue-empty-state" id="queue-empty-state">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>No active downloads. Press <kbd class="kbd-sm">D</kbd> or click ⬇️ to queue.</span>
+        </div>
+        <div class="queue-items-list" id="queue-items-list"></div>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="app-footer">
       <span class="footer-version">FocusGuard v1.1.0 • Aniwatch Episode Downloader • Manifest V3</span>

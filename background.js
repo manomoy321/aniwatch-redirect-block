@@ -36,11 +36,16 @@ chrome.runtime.onInstalled.addListener(() => {
       preferredServerName: res.preferredServerName || 'vidsrc',
       skipIntroSeconds: res.skipIntroSeconds !== undefined ? res.skipIntroSeconds : 85,
       seekSeconds: res.seekSeconds !== undefined ? res.seekSeconds : 5,
-      nextEpisodeDelay: res.nextEpisodeDelay !== undefined ? res.nextEpisodeDelay : 0
+      nextEpisodeDelay: res.nextEpisodeDelay !== undefined ? res.nextEpisodeDelay : 0,
+      downloadQueue: Array.isArray(res.downloadQueue) ? res.downloadQueue : [],
+      downloadSettings: res.downloadSettings || { maxConcurrent: 2 }
     };
     chrome.storage.local.set(defaults);
   });
 });
+
+// Initialize download queue upon service worker startup
+initDownloadQueue();
 
 // Update badge display for a specific tab
 function updateTabBadge(tabId, count) {
@@ -123,6 +128,565 @@ function isAdOrRedirectUrl(urlStr, openerHost = '') {
   return false;
 }
 
+/* ==========================================================================
+   FocusGuard - Resilient API Client (Timeouts, Retries, 429 Backoff & Deduplication)
+   ========================================================================== */
+const inFlightRequests = new Map();
+
+function isTransientHttpStatus(status) {
+  return [408, 429, 500, 502, 503, 504].includes(status);
+}
+
+function parseRetryAfterHeader(headerVal) {
+  if (!headerVal) return null;
+  const seconds = parseInt(headerVal, 10);
+  if (!isNaN(seconds)) {
+    return Math.max(0, Math.min(seconds * 1000, 15000));
+  }
+  const dateMs = Date.parse(headerVal);
+  if (!isNaN(dateMs)) {
+    const diff = dateMs - Date.now();
+    return Math.max(0, Math.min(diff, 15000));
+  }
+  return null;
+}
+
+async function fetchWithRetry(url, options = {}) {
+  const {
+    timeoutMs = 20000,
+    maxRetries = 3,
+    baseDelayMs = 400,
+    maxDelayMs = 6000,
+    parentSignal = null,
+    deduplicate = (options.method || 'GET').toUpperCase() === 'GET',
+    ...fetchInit
+  } = options;
+
+  const method = (fetchInit.method || 'GET').toUpperCase();
+  const rangeHeader = fetchInit.headers && (fetchInit.headers['Range'] || fetchInit.headers['range']);
+  const dedupeKey = deduplicate ? `${method}::${url}::${rangeHeader || ''}` : null;
+
+  if (dedupeKey && inFlightRequests.has(dedupeKey)) {
+    return inFlightRequests.get(dedupeKey);
+  }
+
+  const execute = async () => {
+    let attempt = 0;
+    while (true) {
+      attempt++;
+      const controller = new AbortController();
+      let timeoutId = null;
+
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
+
+      const onParentAbort = () => controller.abort(parentSignal && parentSignal.reason);
+      if (parentSignal) {
+        if (parentSignal.aborted) {
+          if (timeoutId) clearTimeout(timeoutId);
+          throw (parentSignal.reason || new Error('Request aborted'));
+        }
+        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+      }
+
+      try {
+        const response = await fetch(url, {
+          ...fetchInit,
+          signal: controller.signal
+        });
+
+        if (timeoutId) clearTimeout(timeoutId);
+        if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
+
+        // Handle HTTP 429 Too Many Requests
+        if (response.status === 429 && attempt <= maxRetries) {
+          const retryAfterMs = parseRetryAfterHeader(response.headers && response.headers.get('retry-after'));
+          const delay = retryAfterMs !== null ? retryAfterMs : Math.min(maxDelayMs, baseDelayMs * (2 ** (attempt - 1)) + Math.random() * 200);
+          console.warn(`[FocusGuard API] HTTP 429 received. Backing off ${delay}ms (Attempt ${attempt}/${maxRetries}).`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        // Handle 5xx and 408 Transient Server Errors
+        if (isTransientHttpStatus(response.status) && attempt <= maxRetries) {
+          const delay = Math.min(maxDelayMs, baseDelayMs * (2 ** (attempt - 1)) + Math.random() * 200);
+          console.warn(`[FocusGuard API] Transient HTTP ${response.status}. Retrying in ${delay}ms (Attempt ${attempt}/${maxRetries}).`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        return response;
+      } catch (err) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
+
+        if (parentSignal && parentSignal.aborted) {
+          throw err;
+        }
+
+        if (attempt <= maxRetries) {
+          const delay = Math.min(maxDelayMs, baseDelayMs * (2 ** (attempt - 1)) + Math.random() * 200);
+          console.warn(`[FocusGuard API] Network failure: ${err.message}. Retrying in ${delay}ms (Attempt ${attempt}/${maxRetries}).`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        throw err;
+      }
+    }
+  };
+
+  const promise = execute().finally(() => {
+    if (dedupeKey) inFlightRequests.delete(dedupeKey);
+  });
+
+  if (dedupeKey) inFlightRequests.set(dedupeKey, promise);
+  return promise;
+}
+
+/* ==========================================================================
+   FocusGuard - Background Download Queue & Lifecycle Manager
+   ========================================================================== */
+let downloadQueue = [];
+let queueSettings = { maxConcurrent: 2 };
+const activeJobAbortControllers = new Map();
+let queuePersistTimer = null;
+const lastBytesMap = new Map();
+
+// Load queue from persistent storage
+async function initDownloadQueue() {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+    const res = await new Promise((resolve) => {
+      chrome.storage.local.get(['downloadQueue', 'downloadSettings'], (data) => {
+        resolve(data || {});
+      });
+    });
+
+    if (Array.isArray(res.downloadQueue)) {
+      downloadQueue = res.downloadQueue;
+    }
+    if (res.downloadSettings && typeof res.downloadSettings.maxConcurrent === 'number') {
+      queueSettings.maxConcurrent = res.downloadSettings.maxConcurrent;
+    }
+    await reconcileQueueWithBrowser();
+  } catch (e) {
+    console.warn('[FocusGuard Queue] Init error:', e);
+  }
+}
+
+// Persist queue to chrome.storage.local with debouncing
+function persistQueue(immediate = false) {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+  if (queuePersistTimer) {
+    clearTimeout(queuePersistTimer);
+    queuePersistTimer = null;
+  }
+
+  const doSave = () => {
+    const sanitized = downloadQueue.map(job => ({
+      id: job.id,
+      url: job.url,
+      embedUrl: job.embedUrl || '',
+      filename: job.filename,
+      quality: job.quality || '1080p',
+      type: job.type || 'direct',
+      status: job.status,
+      progress: typeof job.progress === 'number' ? job.progress : 0,
+      downloadedBytes: job.downloadedBytes || 0,
+      bytesReceived: job.bytesReceived || job.downloadedBytes || 0,
+      totalBytes: job.totalBytes || 0,
+      speed: job.speed || 0,
+      downloadId: job.downloadId || null,
+      error: job.error || null,
+      createdAt: job.createdAt,
+      updatedAt: Date.now(),
+      retryCount: job.retryCount || 0
+    }));
+
+    chrome.storage.local.set({ downloadQueue: sanitized }, () => {});
+  };
+
+  if (immediate) {
+    doSave();
+  } else {
+    queuePersistTimer = setTimeout(doSave, 350);
+  }
+}
+
+// Reconcile queue with browser download manager upon service-worker wake-up
+async function reconcileQueueWithBrowser() {
+  if (typeof chrome === 'undefined' || !chrome.downloads || typeof chrome.downloads.search !== 'function') return;
+
+  try {
+    const browserDownloads = await new Promise((resolve) => {
+      chrome.downloads.search({}, (items) => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) resolve([]);
+        else resolve(items || []);
+      });
+    });
+
+    const browserMap = new Map();
+    browserDownloads.forEach(d => browserMap.set(d.id, d));
+
+    let modified = false;
+    for (const job of downloadQueue) {
+      if (job.downloadId && browserMap.has(job.downloadId)) {
+        const b = browserMap.get(job.downloadId);
+        if (b.state === 'complete' && job.status !== 'completed') {
+          job.status = 'completed';
+          job.progress = 100;
+          job.speed = 0;
+          modified = true;
+        } else if (b.state === 'interrupted' && job.status !== 'failed' && job.status !== 'cancelled') {
+          if (b.paused) {
+            job.status = 'paused';
+          } else {
+            job.status = 'failed';
+            job.error = b.error || 'Download interrupted';
+          }
+          job.speed = 0;
+          modified = true;
+        } else if (b.state === 'in_progress') {
+          if (b.paused) {
+            job.status = 'paused';
+          } else {
+            job.status = 'downloading';
+          }
+          job.downloadedBytes = b.bytesReceived || job.downloadedBytes;
+          job.totalBytes = b.totalBytes > 0 ? b.totalBytes : job.totalBytes;
+          if (job.totalBytes > 0) {
+            job.progress = Math.round((job.downloadedBytes / job.totalBytes) * 100);
+          }
+          modified = true;
+        }
+      } else if (job.downloadId && !browserMap.has(job.downloadId)) {
+        const ageMs = Date.now() - (job.updatedAt || job.createdAt || 0);
+        if ((job.status === 'downloading' || job.status === 'preparing') && ageMs > 3000) {
+          job.status = 'failed';
+          job.error = 'Download lost or interrupted during browser restart';
+          job.speed = 0;
+          modified = true;
+        }
+      } else if (job.status === 'downloading' && !job.downloadId && job.type === 'direct') {
+        job.status = 'queued';
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      persistQueue(true);
+    }
+  } catch (err) {
+    console.warn('[FocusGuard Queue] Reconcile error:', err);
+  }
+}
+
+// Add download to queue (with deduplication)
+function queueDownload(item) {
+  const url = item.url;
+  const filename = item.filename || 'video.mp4';
+  const quality = item.quality || '1080p';
+  const type = item.type || (url && url.includes('.m3u8') ? 'hls' : 'direct');
+
+  // Deduplication: prevent adding exact duplicate if already queued or downloading
+  const existing = downloadQueue.find(j => 
+    j.url === url && 
+    j.filename === filename && 
+    ['queued', 'preparing', 'downloading'].includes(j.status)
+  );
+  if (existing) {
+    return { success: true, job: existing, isDuplicate: true };
+  }
+
+  const newJob = {
+    id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    url: url,
+    embedUrl: item.embedUrl || '',
+    filename: filename,
+    quality: quality,
+    type: type,
+    status: 'queued',
+    progress: 0,
+    downloadedBytes: 0,
+    bytesReceived: 0,
+    totalBytes: item.totalBytes || 0,
+    speed: 0,
+    downloadId: null,
+    error: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    retryCount: 0
+  };
+
+  downloadQueue.push(newJob);
+  persistQueue(true);
+  processQueue();
+
+  return { success: true, job: newJob };
+}
+
+// Process queue and launch jobs up to maxConcurrent limit
+function processQueue() {
+  const activeCount = downloadQueue.filter(j => j.status === 'downloading' || j.status === 'preparing').length;
+  const availableSlots = queueSettings.maxConcurrent - activeCount;
+
+  if (availableSlots <= 0) return;
+
+  const pending = downloadQueue.filter(j => j.status === 'queued');
+  for (let i = 0; i < Math.min(availableSlots, pending.length); i++) {
+    startJob(pending[i]);
+  }
+}
+
+// Launch an individual job
+async function startJob(job) {
+  if (!job || job.status !== 'queued') return;
+
+  job.status = 'preparing';
+  persistQueue(true);
+
+  if (job.type === 'direct') {
+    job.status = 'downloading';
+    persistQueue(true);
+
+    try {
+      const downloadOptions = {
+        url: job.url,
+        filename: job.filename,
+        saveAs: false,
+        conflictAction: 'uniquify'
+      };
+
+      if (job.embedUrl && (job.url.startsWith('http://') || job.url.startsWith('https://'))) {
+        downloadOptions.headers = [{ name: 'Referer', value: job.embedUrl }];
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.download) {
+        chrome.downloads.download(downloadOptions, (downloadId) => {
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+            job.status = 'failed';
+            job.error = chrome.runtime.lastError.message;
+            persistQueue(true);
+            processQueue();
+          } else {
+            job.downloadId = downloadId;
+            persistQueue(true);
+          }
+        });
+      } else {
+        job.status = 'failed';
+        job.error = 'chrome.downloads API not available';
+        persistQueue(true);
+        processQueue();
+      }
+    } catch (err) {
+      job.status = 'failed';
+      job.error = err.message;
+      persistQueue(true);
+      processQueue();
+    }
+  } else if (job.type === 'hls') {
+    // HLS downloads run via segment runner and report progress
+    job.status = 'downloading';
+    persistQueue(true);
+  }
+}
+
+// Pause a download job
+function pauseJob(jobId) {
+  const job = downloadQueue.find(j => j.id === jobId);
+  if (!job) return { success: false, error: 'Job not found' };
+
+  if (job.downloadId && typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.pause) {
+    chrome.downloads.pause(job.downloadId, () => {
+      job.status = 'paused';
+      job.speed = 0;
+      persistQueue(true);
+      processQueue();
+    });
+  } else {
+    job.status = 'paused';
+    job.speed = 0;
+    persistQueue(true);
+    processQueue();
+  }
+  return { success: true };
+}
+
+// Resume a paused download job
+function resumeJob(jobId) {
+  const job = downloadQueue.find(j => j.id === jobId);
+  if (!job) return { success: false, error: 'Job not found' };
+
+  if (job.downloadId && typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.resume) {
+    chrome.downloads.resume(job.downloadId, () => {
+      job.status = 'downloading';
+      persistQueue(true);
+    });
+  } else {
+    job.status = 'queued';
+    persistQueue(true);
+    processQueue();
+  }
+  return { success: true };
+}
+
+// Cancel a download job
+function cancelJob(jobId) {
+  const job = downloadQueue.find(j => j.id === jobId);
+  if (!job) return { success: false, error: 'Job not found' };
+
+  if (activeJobAbortControllers.has(jobId)) {
+    activeJobAbortControllers.get(jobId).abort();
+    activeJobAbortControllers.delete(jobId);
+  }
+
+  if (job.downloadId && typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.cancel) {
+    chrome.downloads.cancel(job.downloadId, () => {});
+  }
+
+  job.status = 'cancelled';
+  job.speed = 0;
+  persistQueue(true);
+  processQueue();
+  return { success: true };
+}
+
+// Retry a failed or cancelled download job
+function retryJob(jobId) {
+  const job = downloadQueue.find(j => j.id === jobId);
+  if (!job) return { success: false, error: 'Job not found' };
+
+  job.status = 'queued';
+  job.error = null;
+  job.progress = 0;
+  job.downloadedBytes = 0;
+  job.speed = 0;
+  job.downloadId = null;
+  job.retryCount = (job.retryCount || 0) + 1;
+  persistQueue(true);
+  processQueue();
+  return { success: true };
+}
+
+// Remove a download job from queue
+function removeJob(jobId) {
+  const index = downloadQueue.findIndex(j => j.id === jobId);
+  if (index === -1) return { success: false, error: 'Job not found' };
+
+  const job = downloadQueue[index];
+  if (job.status === 'downloading' || job.status === 'preparing') {
+    cancelJob(jobId);
+  }
+
+  downloadQueue.splice(index, 1);
+  persistQueue(true);
+  processQueue();
+  return { success: true };
+}
+
+// Clear all completed, failed, or cancelled jobs
+function clearCompletedJobs() {
+  const countBefore = downloadQueue.length;
+  downloadQueue = downloadQueue.filter(j => ['queued', 'preparing', 'downloading', 'paused'].includes(j.status));
+  persistQueue(true);
+  return { success: true, cleared: countBefore - downloadQueue.length };
+}
+
+// Update job progress reported from runner (e.g. HLS or direct stream chunk)
+function updateJobProgress(data) {
+  const jobId = data.jobId;
+  const job = downloadQueue.find(j => j.id === jobId || (data.downloadId && j.downloadId === data.downloadId));
+  if (!job) return { success: false, error: 'Job not found' };
+
+  if (typeof data.progress === 'number') job.progress = Math.max(0, Math.min(100, data.progress));
+  const dlBytes = (typeof data.downloadedBytes === 'number') ? data.downloadedBytes : ((typeof data.bytesReceived === 'number') ? data.bytesReceived : null);
+  if (dlBytes !== null) {
+    job.downloadedBytes = dlBytes;
+    job.bytesReceived = dlBytes;
+  }
+  if (typeof data.totalBytes === 'number' && data.totalBytes > 0) job.totalBytes = data.totalBytes;
+  if (typeof data.speed === 'number') job.speed = data.speed;
+  if (data.status) job.status = data.status;
+  if (data.downloadId) job.downloadId = data.downloadId;
+  if (data.error) job.error = data.error;
+
+  job.updatedAt = Date.now();
+
+  if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+    persistQueue(true);
+    processQueue();
+  } else {
+    persistQueue(false);
+  }
+
+  return { success: true };
+}
+
+// Listen for browser download events to sync direct downloads
+if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.onChanged) {
+  chrome.downloads.onChanged.addListener((delta) => {
+    const job = downloadQueue.find(j => j.downloadId === delta.id);
+    if (!job) return;
+
+    const now = Date.now();
+
+    if (delta.state) {
+      if (delta.state.current === 'complete') {
+        job.status = 'completed';
+        job.progress = 100;
+        job.speed = 0;
+        persistQueue(true);
+        processQueue();
+      } else if (delta.state.current === 'interrupted') {
+        if (delta.error && delta.error.current === 'USER_CANCELED') {
+          job.status = 'cancelled';
+        } else {
+          job.status = 'failed';
+          job.error = (delta.error && delta.error.current) || 'Download interrupted';
+        }
+        job.speed = 0;
+        persistQueue(true);
+        processQueue();
+      }
+    }
+
+    if (delta.paused) {
+      job.status = delta.paused.current ? 'paused' : 'downloading';
+      persistQueue(true);
+    }
+
+    if (delta.totalBytes && delta.totalBytes.current > 0) {
+      job.totalBytes = delta.totalBytes.current;
+    }
+
+    if (delta.bytesReceived) {
+      const currentBytes = delta.bytesReceived.current;
+      const prev = lastBytesMap.get(job.id);
+      if (prev && now > prev.timestamp) {
+        const timeDiffSec = (now - prev.timestamp) / 1000;
+        if (timeDiffSec >= 0.5) {
+          job.speed = Math.round((currentBytes - prev.bytes) / timeDiffSec);
+          lastBytesMap.set(job.id, { bytes: currentBytes, timestamp: now });
+        }
+      } else {
+        lastBytesMap.set(job.id, { bytes: currentBytes, timestamp: now });
+      }
+
+      job.downloadedBytes = currentBytes;
+      job.bytesReceived = currentBytes;
+      if (job.totalBytes > 0) {
+        job.progress = Math.round((job.downloadedBytes / job.totalBytes) * 100);
+      }
+      persistQueue(false);
+    }
+  });
+}
+
 // Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) return;
@@ -164,6 +728,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Download Queue Manager Handlers
+  if (message.action === 'queue_download') {
+    const res = queueDownload(message);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'get_download_queue') {
+    sendResponse({ success: true, queue: downloadQueue, settings: queueSettings });
+    return true;
+  }
+
+  if (message.action === 'pause_download') {
+    const res = pauseJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'resume_download') {
+    const res = resumeJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'cancel_download') {
+    const res = cancelJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'retry_download') {
+    const res = retryJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'remove_download') {
+    const res = removeJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'clear_completed_downloads') {
+    const res = clearCompletedJobs();
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'update_job_progress') {
+    const res = updateJobProgress(message);
+    sendResponse(res);
+    return true;
+  }
+
   // Video Player Suite: Download video with custom episode filename
   if (message.action === 'download_video') {
     const downloadUrl = message.url;
@@ -175,6 +793,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     try {
+      const qRes = queueDownload({
+        url: downloadUrl,
+        filename: downloadFilename,
+        embedUrl: message.embedUrl || '',
+        quality: message.quality || '1080p',
+        type: (downloadUrl.includes('.m3u8') || downloadUrl.includes('/hls/')) ? 'hls' : 'direct',
+        totalBytes: message.totalBytes || 0
+      });
+
       const downloadOptions = {
         url: downloadUrl,
         filename: downloadFilename,
@@ -188,18 +815,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ];
       }
 
-      chrome.downloads.download(downloadOptions, (downloadId) => {
-        if (chrome.runtime.lastError) {
-          console.warn('[FocusGuard Background] Video download error:', chrome.runtime.lastError.message);
-          sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        } else {
-          console.log('[FocusGuard Background] Download initiated successfully. ID:', downloadId, 'File:', downloadFilename);
-          sendResponse({ success: true, downloadId: downloadId });
-        }
-      });
+      if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.download) {
+        chrome.downloads.download(downloadOptions, (downloadId) => {
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
+            console.warn('[FocusGuard Background] Video download error:', chrome.runtime.lastError.message);
+            if (qRes && qRes.job) {
+              updateJobProgress({ jobId: qRes.job.id, status: 'failed', error: chrome.runtime.lastError.message });
+            }
+            sendResponse({ success: false, error: chrome.runtime.lastError.message, jobId: qRes && qRes.job ? qRes.job.id : null });
+          } else {
+            console.log('[FocusGuard Background] Download initiated successfully. ID:', downloadId, 'File:', downloadFilename);
+            if (qRes && qRes.job) {
+              updateJobProgress({ jobId: qRes.job.id, downloadId: downloadId, status: 'downloading' });
+            }
+            sendResponse({ success: true, downloadId: downloadId, jobId: qRes && qRes.job ? qRes.job.id : null });
+          }
+        });
+      } else {
+        sendResponse({ success: false, error: 'chrome.downloads not supported on this platform', useFallback: true });
+      }
     } catch (e) {
       console.error('[FocusGuard Background] Download exception:', e);
-      sendResponse({ success: false, error: e.message });
+      sendResponse({ success: false, error: e.message, useFallback: true });
     }
     return true;
   }
@@ -219,7 +856,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Stream Resource Proxy: Bypasses CDN Referer / Origin 403 checks
+  // Stream Resource Proxy: Bypasses CDN Referer / Origin 403 checks with resilient retry & deduplication
   if (message.action === 'fetch_stream_data') {
     const targetUrl = message.url;
     const embedUrl = message.embedUrl || '';
@@ -239,12 +876,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ruleSet = true;
         }
 
-        const fetchOptions = { method: 'GET', cache: 'no-cache' };
+        const fetchOptions = {
+          method: 'GET',
+          cache: 'no-cache',
+          timeoutMs: 20000,
+          maxRetries: 3,
+          baseDelayMs: 350
+        };
         if (byteRange) {
           fetchOptions.headers = { 'Range': `bytes=${byteRange}` };
         }
 
-        const res = await fetch(targetUrl, fetchOptions);
+        const res = await fetchWithRetry(targetUrl, fetchOptions);
         if (!res.ok) {
           sendResponse({ success: false, status: res.status, error: `Stream HTTP ${res.status}` });
           return;
@@ -618,3 +1261,31 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     updateTabBadge(activeInfo.tabId, count);
   } catch (e) {}
 });
+
+// Unit test / Node.js export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    fetchWithRetry,
+    parseRetryAfterHeader,
+    isTransientHttpStatus,
+    inFlightRequests,
+    initDownloadQueue,
+    persistQueue,
+    reconcileQueueWithBrowser,
+    queueDownload,
+    processQueue,
+    startJob,
+    pauseJob,
+    resumeJob,
+    cancelJob,
+    retryJob,
+    removeJob,
+    clearCompletedJobs,
+    updateJobProgress,
+    getDownloadQueue: () => downloadQueue,
+    getQueueSettings: () => queueSettings,
+    setDownloadQueue: (q) => { downloadQueue = q; },
+    isAdOrRedirectUrl
+  };
+}
+

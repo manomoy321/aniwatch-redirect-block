@@ -42,6 +42,8 @@
   let hasSelectedEngServer = false;
   let hasSelectedEngTitle = false;
   let isDownloading = false;
+  const tabPendingHlsQueue = [];
+  const activeHlsAbortControllers = new Map();
   let detectedStreamUrl = null;
   let detectedEmbedUrl = null;
   let cachedPlaylistUrl = null;
@@ -1603,14 +1605,26 @@
       } catch (err) {}
     }
 
-    // Direct fetch fallback
+    // Direct fetch fallback with AbortController timeout
     const fetchOpts = {};
     if (byteRange) {
       fetchOpts.headers = { 'Range': `bytes=${byteRange}` };
     }
-    const res = await fetch(url, fetchOpts);
-    if (!res.ok) throw new Error(`Playlist HTTP ${res.status}`);
-    return asBinary ? await res.arrayBuffer() : await res.text();
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    let timer = null;
+    if (controller) {
+      fetchOpts.signal = controller.signal;
+      timer = setTimeout(() => {
+        try { controller.abort(); } catch (e) {}
+      }, 20000);
+    }
+    try {
+      const res = await fetch(url, fetchOpts);
+      if (!res.ok) throw new Error(`Playlist HTTP ${res.status}`);
+      return asBinary ? await res.arrayBuffer() : await res.text();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   // Toggles the quality selector popover directly beneath the download button
@@ -1792,7 +1806,12 @@
   }
 
   // Universal HLS stream downloader: fetches playlist, segments, decrypts AES-128, handles fMP4, and stitches into blob
-  async function downloadHlsStream(m3u8Url, filename, onProgress, chosenQuality = '1080p', embedUrl = null) {
+  async function downloadHlsStream(m3u8Url, filename, onProgress, chosenQuality = '1080p', embedUrl = null, externalJobId = null) {
+    const hlsJobId = externalJobId || ('fg_hls_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+    const hlsAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    if (hlsAbortController) {
+      activeHlsAbortControllers.set(hlsJobId, hlsAbortController);
+    }
     // Proactively arm CDN header bypass in background service worker
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
@@ -1953,6 +1972,9 @@
 
     async function worker() {
       while (nextIdx < total) {
+        if (hlsAbortController && hlsAbortController.signal && hlsAbortController.signal.aborted) {
+          throw new Error('Download cancelled by user.');
+        }
         const idx = nextIdx++;
         const seg = segments[idx];
         let buffer = null;
@@ -1960,6 +1982,9 @@
         let lastErr = null;
 
         while (attempts < 3) {
+          if (hlsAbortController && hlsAbortController.signal && hlsAbortController.signal.aborted) {
+            throw new Error('Download cancelled by user.');
+          }
           try {
             buffer = await fetchResourceSafe(seg.url, embedUrl, true, seg.byteRange);
             if (buffer && buffer.byteLength > 0) break;
@@ -1996,20 +2021,26 @@
       }
     }
 
-    const workers = [];
-    for (let w = 0; w < Math.min(concurrency, total); w++) {
-      workers.push(worker());
-    }
-    await Promise.all(workers);
-
-    const validBuffers = buffers.filter(b => b && b.byteLength > 0);
-    const allBuffers = initSegmentBuffer ? [initSegmentBuffer, ...validBuffers] : validBuffers;
-    const isFmp4 = Boolean(initSegmentBuffer) || playlistContent.includes('.m4s') || /mp4/i.test(playlistContent);
-    const blob = new Blob(allBuffers, { type: 'video/mp4' });
     try {
-      blob.objectUrl = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : '';
-    } catch (e) {}
-    return blob;
+      const workers = [];
+      for (let w = 0; w < Math.min(concurrency, total); w++) {
+        workers.push(worker());
+      }
+      await Promise.all(workers);
+
+      const validBuffers = buffers.filter(b => b && b.byteLength > 0);
+      const allBuffers = initSegmentBuffer ? [initSegmentBuffer, ...validBuffers] : validBuffers;
+      const isFmp4 = Boolean(initSegmentBuffer) || playlistContent.includes('.m4s') || /mp4/i.test(playlistContent);
+      const blob = new Blob(allBuffers, { type: 'video/mp4' });
+      try {
+        blob.objectUrl = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : '';
+      } catch (e) {}
+      return blob;
+    } finally {
+      if (hlsAbortController) {
+        activeHlsAbortControllers.delete(hlsJobId);
+      }
+    }
   }
 
   // MediaStream/Canvas stream recorder for simulated/live players
@@ -2044,11 +2075,6 @@
 
   // Universal download trigger: detects streams from any website player, extracts metadata, selects quality, and downloads
   async function downloadActiveVideo(qualityOrMeta = null, maybeMeta = null, clickedVideo = null) {
-    if (isDownloading) {
-      showHud('⏳', 'Download already in progress...', { duration: 1500 });
-      return;
-    }
-
     // Check if player is currently in an unplayable error state
     if (isPlayerInErrorState() && !detectedStreamUrl) {
       showHud('⚠️', 'Player has server error (232403). Auto-recovering server...', { duration: 3200 });
@@ -2129,12 +2155,36 @@
     meta.filename = saveFilename;
 
     const displayTitle = meta.isEpisode ? `Episode ${meta.episodeNum}` : (meta.title || meta.animeTitle || 'Video');
+
+    // If an active stream download is already running in this tab, gracefully queue subsequent requests
+    if (isDownloading) {
+      tabPendingHlsQueue.push({ qualityOrMeta, maybeMeta, clickedVideo });
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'queue_download',
+          job: {
+            title: displayTitle,
+            filename: meta.filename,
+            type: 'hls',
+            status: 'queued',
+            progress: 0,
+            quality: chosenQuality,
+            episodeNum: meta.episodeNum || null,
+            source: 'player_controller'
+          }
+        });
+      }
+      showHud('⏳', `Queued in download manager: ${meta.filename}`, { isDownload: true, duration: 2500 });
+      return;
+    }
+
     showHud('⬇️', `Preparing ${meta.filename}...`, { isDownload: true, duration: 2200 });
 
     const btn = (video && video.__fg_download_btn__) || document.querySelector('.fg-player-download-btn');
     if (btn) btn.classList.add('fg-downloading');
 
     isDownloading = true;
+    const currentHlsJobId = 'fg_hls_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
     try {
       let targetUrl = resolveActiveStreamUrl(video);
@@ -2196,6 +2246,23 @@
       // 2. HLS stream (.m3u8 or contains /hls/ or manifest)
       if (targetUrl && (targetUrl.includes('.m3u8') || targetUrl.includes('/hls/') || /chunklist|manifest/i.test(targetUrl))) {
         showHud('⬇️', `Fetching ${displayTitle} [${chosenQuality}] playlist...`, { isDownload: true, duration: 2000 });
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({
+            action: 'queue_download',
+            job: {
+              id: currentHlsJobId,
+              url: targetUrl,
+              filename: meta.filename,
+              title: displayTitle,
+              type: 'hls',
+              status: 'downloading',
+              progress: 0,
+              quality: chosenQuality,
+              episodeNum: meta.episodeNum || null,
+              source: 'player_controller'
+            }
+          });
+        }
         try {
           const blobResult = await downloadHlsStream(targetUrl, meta.filename, (pct, completed, total) => {
             const extraStr = total ? `(${completed}/${total})` : '';
@@ -2205,6 +2272,16 @@
               extra: extraStr,
               duration: 2000
             });
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+              chrome.runtime.sendMessage({
+                action: 'update_job_progress',
+                jobId: currentHlsJobId,
+                progress: pct,
+                completed: completed,
+                total: total,
+                status: 'downloading'
+              });
+            }
             if (typeof window !== 'undefined' && window !== window.top) {
               try {
                 window.top.postMessage({
@@ -2218,15 +2295,31 @@
                 }, '*');
               } catch (e) {}
             }
-          }, chosenQuality, effectiveEmbedUrl);
+          }, chosenQuality, effectiveEmbedUrl, currentHlsJobId);
 
           triggerFileSave(blobResult, meta.filename);
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({
+              action: 'update_job_progress',
+              jobId: currentHlsJobId,
+              progress: 100,
+              status: 'completed'
+            });
+          }
           if (typeof window !== 'undefined' && window === window.top) {
             showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
           }
           return;
         } catch (hlsErr) {
           console.warn('[FocusGuard] HLS download error:', hlsErr);
+          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+            chrome.runtime.sendMessage({
+              action: 'update_job_progress',
+              jobId: currentHlsJobId,
+              status: 'failed',
+              error: hlsErr.message
+            });
+          }
           if (typeof window !== 'undefined' && window === window.top) {
             broadcastCommand('download_video', meta);
             showHud('⬇️', `Delegating download for ${displayTitle}...`, { isDownload: true, duration: 2500 });
@@ -2279,6 +2372,12 @@
     } finally {
       isDownloading = false;
       if (btn) btn.classList.remove('fg-downloading');
+      if (tabPendingHlsQueue.length > 0) {
+        const nextJob = tabPendingHlsQueue.shift();
+        setTimeout(() => {
+          downloadActiveVideo(nextJob.qualityOrMeta, nextJob.maybeMeta, nextJob.clickedVideo);
+        }, 350);
+      }
     }
   }
 
@@ -4011,6 +4110,16 @@
           sendResponse({ success: true, target: 'broadcast' });
         }
         return true;
+      }
+
+      if (msg.action === 'cancel_tab_download' && msg.jobId) {
+        if (activeHlsAbortControllers.has(msg.jobId)) {
+          const ctrl = activeHlsAbortControllers.get(msg.jobId);
+          try { ctrl.abort(); } catch (e) {}
+          activeHlsAbortControllers.delete(msg.jobId);
+          sendResponse({ success: true, aborted: true });
+          return true;
+        }
       }
 
     });

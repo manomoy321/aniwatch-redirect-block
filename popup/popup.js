@@ -321,4 +321,200 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderUI();
     });
   });
+
+  // ==========================================================================
+  // Download Queue Manager (Reactive, Real-Time & Persistent)
+  // ==========================================================================
+  const queueCountBadge = document.getElementById('queue-count-badge');
+  const btnClearQueue = document.getElementById('btn-clear-queue');
+  const queueEmptyState = document.getElementById('queue-empty-state');
+  const queueItemsList = document.getElementById('queue-items-list');
+
+  let currentQueue = [];
+
+  function formatBytes(bytes) {
+    if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let idx = 0;
+    let b = Number(bytes);
+    while (b >= 1024 && idx < units.length - 1) {
+      b /= 1024;
+      idx++;
+    }
+    return `${b.toFixed(idx > 1 ? 1 : 0)} ${units[idx]}`;
+  }
+
+  function formatSpeed(bytesPerSec) {
+    if (!bytesPerSec || bytesPerSec <= 0) return '';
+    return `${formatBytes(bytesPerSec)}/s`;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function renderDownloadQueue(queue = []) {
+    currentQueue = Array.isArray(queue) ? queue : [];
+    if (!queueItemsList || !queueCountBadge) return;
+
+    const activeJobs = currentQueue.filter(j => j.status === 'downloading' || j.status === 'queued' || j.status === 'preparing');
+    queueCountBadge.textContent = `${activeJobs.length} active`;
+    if (activeJobs.length > 0) {
+      queueCountBadge.classList.add('has-active');
+    } else {
+      queueCountBadge.classList.remove('has-active');
+    }
+
+    if (currentQueue.length === 0) {
+      if (queueEmptyState) queueEmptyState.style.display = 'flex';
+      queueItemsList.innerHTML = '';
+      return;
+    }
+
+    if (queueEmptyState) queueEmptyState.style.display = 'none';
+
+    queueItemsList.innerHTML = currentQueue.map(job => {
+      const pct = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
+      const isComplete = job.status === 'completed';
+      const isFailed = job.status === 'failed';
+      const isPaused = job.status === 'paused';
+      const isDownloading = job.status === 'downloading';
+      const isQueued = job.status === 'queued';
+      const isCancelled = job.status === 'cancelled';
+
+      let statusClass = `status-${job.status || 'queued'}`;
+      let statusLabel = (job.status || 'queued').toUpperCase();
+
+      let metaText = '';
+      if (isDownloading) {
+        const dlBytes = formatBytes(job.bytesReceived);
+        const total = job.totalBytes > 0 ? ` / ${formatBytes(job.totalBytes)}` : '';
+        const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
+        metaText = `${dlBytes}${total}${spd}`;
+      } else if (isComplete) {
+        metaText = job.totalBytes > 0 ? formatBytes(job.totalBytes) : 'Complete';
+      } else if (isFailed) {
+        metaText = job.error ? String(job.error).substring(0, 32) : 'Failed';
+      } else if (isPaused) {
+        metaText = 'Paused';
+      } else if (isQueued) {
+        metaText = 'Waiting in queue...';
+      }
+
+      let actionsHtml = '';
+      if (isDownloading) {
+        actionsHtml = `
+          <button type="button" class="btn-job-action" data-action="pause" data-id="${job.id}">Pause</button>
+          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
+        `;
+      } else if (isPaused) {
+        actionsHtml = `
+          <button type="button" class="btn-job-action" data-action="resume" data-id="${job.id}">Resume</button>
+          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
+        `;
+      } else if (isQueued) {
+        actionsHtml = `
+          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
+        `;
+      } else if (isFailed || isCancelled) {
+        actionsHtml = `
+          <button type="button" class="btn-job-action" data-action="retry" data-id="${job.id}">Retry</button>
+          <button type="button" class="btn-job-action danger" data-action="remove" data-id="${job.id}">✕</button>
+        `;
+      } else if (isComplete) {
+        actionsHtml = `
+          <button type="button" class="btn-job-action" data-action="remove" data-id="${job.id}">✕</button>
+        `;
+      }
+
+      const qualityPill = job.quality ? `<span class="queue-quality-pill">${escapeHtml(job.quality)}</span>` : '';
+      const safeTitle = escapeHtml(job.filename || job.title || 'Video');
+
+      return `
+        <div class="queue-card" data-job-id="${job.id}">
+          <div class="queue-card-top">
+            <div class="queue-card-title-group">
+              ${qualityPill}
+              <span class="queue-card-title" title="${safeTitle}">${safeTitle}</span>
+            </div>
+            <span class="queue-status-tag ${statusClass}">${statusLabel}</span>
+          </div>
+          <div class="queue-progress-track">
+            <div class="queue-progress-bar" style="width: ${pct}%"></div>
+          </div>
+          <div class="queue-card-meta">
+            <div class="queue-meta-text">
+              <span>${pct}%</span>
+              <span>${escapeHtml(metaText)}</span>
+            </div>
+            <div class="queue-card-actions">
+              ${actionsHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const actionBtns = queueItemsList.querySelectorAll('.btn-job-action');
+    actionBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.getAttribute('data-action');
+        const jobId = btn.getAttribute('data-id');
+        if (!jobId || !action) return;
+
+        let msgAction = '';
+        if (action === 'pause') msgAction = 'pause_download';
+        else if (action === 'resume') msgAction = 'resume_download';
+        else if (action === 'cancel') msgAction = 'cancel_download';
+        else if (action === 'retry') msgAction = 'retry_download';
+        else if (action === 'remove') msgAction = 'remove_download';
+
+        if (msgAction) {
+          chrome.runtime.sendMessage({ action: msgAction, jobId: jobId }, (res) => {
+            if (res && res.queue) {
+              renderDownloadQueue(res.queue);
+            }
+          });
+        }
+      });
+    });
+  }
+
+  // Clear completed downloads
+  if (btnClearQueue) {
+    btnClearQueue.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'clear_completed_downloads' }, (res) => {
+        if (res && res.queue) {
+          renderDownloadQueue(res.queue);
+        }
+      });
+    });
+  }
+
+  // Load initial download queue
+  chrome.storage.local.get(['downloadQueue'], (data) => {
+    if (Array.isArray(data.downloadQueue)) {
+      renderDownloadQueue(data.downloadQueue);
+    } else {
+      chrome.runtime.sendMessage({ action: 'get_download_queue' }, (res) => {
+        if (res && Array.isArray(res.queue)) {
+          renderDownloadQueue(res.queue);
+        }
+      });
+    }
+  });
+
+  // Listen to live changes to downloadQueue in storage
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.downloadQueue) {
+      renderDownloadQueue(changes.downloadQueue.newValue || []);
+    }
+  });
 });
