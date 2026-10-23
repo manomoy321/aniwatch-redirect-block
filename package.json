@@ -1,0 +1,36 @@
+{
+  "name": "aniwatch-episode-downloader",
+  "version": "1.1.0",
+  "description": "Aniwatch Episode Downloader & Redirect Blocker - Download anime episodes in 1080p, 720p, and 480p from Aniwatch and HiAnime with live on-player download progress bar.",
+  "main": "background.js",
+  "scripts": {
+    "test": "node tests/test_download_episode.js && node tests/test_universal_download.js && node tests/test_m4s_and_quality_control.js && node tests/test_complete_video_smooth_playback.js && node tests/test_dub_all_time.js && node tests/test_dub_continuity.js",
+    "test:download": "node tests/test_download_episode.js",
+    "test:universal": "node tests/test_universal_download.js",
+    "test:m4s": "node tests/test_m4s_and_quality_control.js",
+    "test:playback": "node tests/test_complete_video_smooth_playback.js",
+    "test:dub": "node tests/test_dub_all_time.js && node tests/test_dub_continuity.js",
+    "package": "node scripts/package_extension.js",
+    "build:zip": "powershell -ExecutionPolicy Bypass -File scripts/package_extension.ps1"
+  },
+  "keywords": [
+    "aniwatch",
+    "hianime",
+    "episode-downloader",
+    "hls-downloader",
+    "m3u8-downloader",
+    "chrome-extension",
+    "focusguard",
+    "video-downloader"
+  ],
+  "author": "manomoy321",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/manomoy321/aniwatch-redirect-block.git"
+  },
+  "bugs": {
+    "url": "https://github.com/manomoy321/aniwatch-redirect-block/issues"
+  },
+  "homepage": "https://github.com/manomoy321/aniwatch-redirect-block#readme"
+}

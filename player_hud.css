@@ -531,6 +531,38 @@ iframe[src*="stream"],
   justify-content: space-between !important;
   padding: 2px 4px 6px 4px !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  gap: 8px !important;
+}
+
+.fg-quality-header-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.fg-quality-close-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #94a3b8 !important;
+  border-radius: 50% !important;
+  width: 22px !important;
+  height: 22px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: all 0.15s ease !important;
+  outline: none !important;
+}
+
+.fg-quality-close-btn:hover,
+.fg-quality-close-btn:active {
+  background: rgba(239, 68, 68, 0.25) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #f87171 !important;
 }
 
 .fg-quality-title {
@@ -672,4 +704,77 @@ iframe[src*="stream"],
   padding-top: 4px !important;
   border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
+
+/* ==========================================================================
+   Mobile & Tiny Screen Optimization (iPhone, Orion Browser)
+   Safe areas, touch target scaling, and compact responsiveness
+   ========================================================================== */
+
+@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+  .fg-download-btn-host {
+    top: max(8px, env(safe-area-inset-top, 8px)) !important;
+    right: max(8px, env(safe-area-inset-right, 8px)) !important;
+  }
+
+  .fg-player-download-btn {
+    min-height: 38px !important;
+    padding: 6px 12px !important;
+    font-size: 11px !important;
+    touch-action: manipulation !important;
+  }
+
+  .fg-quality-popover {
+    width: min(285px, calc(100vw - 16px)) !important;
+    max-width: calc(100vw - 16px) !important;
+    right: 0 !important;
+    padding: 10px !important;
+    touch-action: manipulation !important;
+  }
+
+  .fg-quality-item {
+    min-height: 44px !important;
+    padding: 8px 10px !important;
+    touch-action: manipulation !important;
+  }
+
+  .fg-hud-badge {
+    padding: 8px 14px !important;
+    font-size: 12px !important;
+    gap: 8px !important;
+  }
+
+  .fg-top-progress-title {
+    font-size: 10px !important;
+  }
+
+  .fg-top-progress-pct {
+    font-size: 11px !important;
+    padding: 1px 5px !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .fg-player-download-label {
+    display: none !important;
+  }
+
+  .fg-player-download-btn {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+  }
+
+  .fg-quality-popover {
+    width: calc(100vw - 12px) !important;
+    right: -4px !important;
+  }
+
+  .fg-quality-tier-desc {
+    display: none !important;
+  }
+
+  .fg-top-progress-segments {
+    display: none !important;
+  }
+}
+
 

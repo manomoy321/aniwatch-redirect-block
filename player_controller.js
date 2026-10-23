@@ -1404,12 +1404,18 @@
     }
 
     container.addEventListener('mousemove', resetActivity);
+    container.addEventListener('touchstart', resetActivity, { passive: true });
+    container.addEventListener('pointerdown', resetActivity, { passive: true });
+    container.addEventListener('click', resetActivity, { passive: true });
+
     if (videoEl) {
       videoEl.addEventListener('play', resetActivity);
       videoEl.addEventListener('pause', () => {
         host.classList.remove('fg-btn-autohide');
         host.classList.add('fg-btn-visible');
       });
+      videoEl.addEventListener('touchstart', resetActivity, { passive: true });
+      videoEl.addEventListener('pointerdown', resetActivity, { passive: true });
     }
   }
 
@@ -1700,14 +1706,26 @@
 
     popover.innerHTML = `
       <div class="fg-quality-header">
-        <span class="fg-quality-title">Choose Quality</span>
-        <span class="fg-quality-ep-pill">${epPill}</span>
+        <div class="fg-quality-header-left">
+          <span class="fg-quality-title">Choose Quality</span>
+          <span class="fg-quality-ep-pill">${epPill}</span>
+        </div>
+        <button type="button" class="fg-quality-close-btn" aria-label="Close quality selector">✕</button>
       </div>
       <div class="fg-quality-list">
         ${itemsHtml}
       </div>
       <div class="fg-quality-footer">Estimated internet data required</div>
     `;
+
+    const closeBtn = popover.querySelector('.fg-quality-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeQualityPopover(popover);
+      });
+    }
 
     const items = popover.querySelectorAll('.fg-quality-item');
     items.forEach((item) => {
