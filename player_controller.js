@@ -44,19 +44,39 @@
   let isDownloading = false;
   let detectedStreamUrl = null;
   let detectedEmbedUrl = null;
+  let cachedPlaylistUrl = null;
   let cachedPlaylistText = null;
   let cachedEpisodeMeta = null;
   let userManuallySelectedCategory = null;
   let isAutoRecovering = false;
+  var getAvailableQualities, resolveActiveStreamUrl, parseMasterPlaylist, parseHlsByteRange, formatDataSize;
   let playerErrorRecoveryCount = 0;
   let lastPlayerErrorCheckTime = 0;
 
+  // Helper: Strictly check if a URL is an isolated segment chunk or invalid stream
+  function isSegmentChunkUrl(u) {
+    if (!u || typeof u !== 'string') return true;
+    if (u.startsWith('blob:') || u.startsWith('data:')) return true;
+    const clean = u.toLowerCase();
+    if (clean.includes('.m4s') || clean.includes('.ts') || clean.includes('.aac') || clean.includes('.m4a')) return true;
+    if (clean.includes('/segment') || clean.includes('/frag-') || clean.includes('/range/')) return true;
+    return false;
+  }
+
   // Listen for video stream sniffer events from inject.js
   window.addEventListener('__focusguard_stream_detected__', (e) => {
-    if (e.detail && e.detail.url && !e.detail.url.startsWith('blob:')) {
+    if (e.detail && e.detail.url && !isSegmentChunkUrl(e.detail.url)) {
       detectedStreamUrl = e.detail.url;
       if (e.detail.embedUrl) detectedEmbedUrl = e.detail.embedUrl;
       if (e.detail.playlistText) cachedPlaylistText = e.detail.playlistText;
+
+      // Proactively fetch playlist text if not attached yet
+      if (!cachedPlaylistText && (detectedStreamUrl.includes('.m3u8') || detectedStreamUrl.includes('/hls/') || /manifest|playlist/i.test(detectedStreamUrl))) {
+        fetchResourceSafe(detectedStreamUrl, detectedEmbedUrl, false).then(text => {
+          if (text && text.includes('#EXTM3U')) cachedPlaylistText = text;
+        }).catch(() => {});
+      }
+
       if (window !== window.top) {
         try {
           window.top.postMessage({
@@ -468,19 +488,20 @@
     mountDownloadButton(video);
   }
 
-  // 3.5 Video Downloader & Episode Filename Resolver
-  function getEpisodeMetadata(targetDoc, quality = null) {
+  // 3.5 Video Downloader & Universal Filename / Metadata Resolver
+  function getEpisodeMetadata(targetDoc, quality = null, targetVideo = null) {
     const doc = targetDoc || (typeof document !== 'undefined' ? document : null);
     const qSuffix = quality ? ` [${quality}]` : '';
-    if (!doc) return { episodeNum: '01', animeTitle: '', baseName: `Episode 01${qSuffix}`, filename: `Episode 01${qSuffix}.mp4`, quality: quality || null };
+    if (!doc) return { isEpisode: false, episodeNum: '01', animeTitle: '', title: 'Video', baseName: `Episode 01${qSuffix}`, filename: `Episode 01${qSuffix}.mp4`, quality: quality || null };
 
-    if (!targetDoc && !quality && cachedEpisodeMeta && cachedEpisodeMeta.timestamp && (Date.now() - cachedEpisodeMeta.timestamp < 1000)) {
+    if (!targetDoc && !quality && !targetVideo && cachedEpisodeMeta && cachedEpisodeMeta.timestamp && (Date.now() - cachedEpisodeMeta.timestamp < 1000)) {
       return cachedEpisodeMeta;
     }
     const targetDocToUse = doc;
 
     let episodeNum = null;
     let animeTitle = null;
+    let hasExplicitEpisode = false;
 
     // A. Priority 1: Active episode button in selector list
     const epSelectors = [
@@ -503,12 +524,14 @@
           const dataNum = el.getAttribute('data-number') || el.getAttribute('data-episode') || el.getAttribute('data-num');
           if (dataNum && /^\d+$/.test(dataNum.trim())) {
             episodeNum = dataNum.trim();
+            hasExplicitEpisode = true;
             break;
           }
           const text = (el.textContent || '').trim();
           const m = text.match(/(?:Episode|Ep\.?|EP)?\s*(\d+)/i);
           if (m) {
             episodeNum = m[1];
+            hasExplicitEpisode = true;
             break;
           }
         }
@@ -534,6 +557,7 @@
             const m = el.textContent.match(/(?:Episode|Ep\.?|EP)?\s*(\d+)/i);
             if (m) {
               episodeNum = m[1];
+              hasExplicitEpisode = true;
               break;
             }
           }
@@ -544,24 +568,33 @@
     // C. Priority 3: Page title and URL
     if (!episodeNum && targetDocToUse.title) {
       const titleMatch = targetDocToUse.title.match(/(?:Episode|Ep\.?|EP)\s*(\d+)/i);
-      if (titleMatch) episodeNum = titleMatch[1];
+      if (titleMatch) {
+        episodeNum = titleMatch[1];
+        hasExplicitEpisode = true;
+      }
     }
 
-    if (!episodeNum) {
+    if (!episodeNum && typeof window !== 'undefined' && window.location) {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const epParam = urlParams.get('ep') || urlParams.get('episode') || urlParams.get('ep_number');
         if (epParam) {
           const m = epParam.match(/(\d+)/);
-          if (m) episodeNum = m[1];
+          if (m) {
+            episodeNum = m[1];
+            hasExplicitEpisode = true;
+          }
         }
       } catch (e) {}
     }
 
-    if (!episodeNum) {
+    if (!episodeNum && typeof window !== 'undefined' && window.location) {
       try {
         const pathMatch = window.location.pathname.match(/ep(?:isode)?[-_/](\d+)/i);
-        if (pathMatch) episodeNum = pathMatch[1];
+        if (pathMatch) {
+          episodeNum = pathMatch[1];
+          hasExplicitEpisode = true;
+        }
       } catch (e) {}
     }
 
@@ -576,7 +609,7 @@
       }
     }
 
-    // Extract Anime Title
+    // Extract Anime or Video Title
     const titleSelectors = [
       '.film-name',
       'h2.film-name',
@@ -602,44 +635,654 @@
       } catch (e) {}
     }
 
+    // Check targetVideo attributes or container headings if available
+    if (!animeTitle && targetVideo) {
+      try {
+        const vTitle = targetVideo.getAttribute('title') || targetVideo.getAttribute('aria-label');
+        if (vTitle && vTitle.trim().length > 1) {
+          animeTitle = vTitle.trim();
+        }
+        if (!animeTitle) {
+          const container = targetVideo.closest ? targetVideo.closest('[class*="player"], [id*="player"], figure') : null;
+          if (container) {
+            const h = container.querySelector('h1, h2, h3, .title, [class*="title"], [class*="heading"]');
+            if (h && h.textContent && h.textContent.trim().length > 1) {
+              animeTitle = h.textContent.trim();
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Check page h1
+    if (!animeTitle) {
+      try {
+        const pageH1 = targetDocToUse.querySelector('h1');
+        if (pageH1 && pageH1.textContent && pageH1.textContent.trim().length > 1) {
+          animeTitle = pageH1.textContent.trim();
+        }
+      } catch (e) {}
+    }
+
+    // Check meta tags (og:title, twitter:title)
+    if (!animeTitle) {
+      try {
+        const ogTitle = targetDocToUse.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
+        if (ogTitle && ogTitle.getAttribute('content')) {
+          animeTitle = ogTitle.getAttribute('content').trim();
+        }
+      } catch (e) {}
+    }
+
+    // Fallback to document title cleaned of site names
     if (!animeTitle && targetDocToUse.title) {
       let cleanDocTitle = targetDocToUse.title
         .replace(/^Watch\s+/i, '')
-        .replace(/\s+Episode\s+\d+.*$/i, '')
         .replace(/\s+English Sub\/Dub.*$/i, '')
         .replace(/\s+online free.*$/i, '')
-        .replace(/\s*[-–—|]\s*(?:HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime).*$/i, '')
+        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream).*$/i, '')
+        .replace(/\s*[-–—|:]*\s*Episode\s+\d+.*$/i, '')
+        .replace(/^[\s\-_–—|:]+|[\s\-_–—|:]+$/g, '')
         .trim();
       if (cleanDocTitle.length > 1) {
         animeTitle = cleanDocTitle;
       }
     }
 
-    let baseName = '';
     if (animeTitle) {
-      baseName = `${animeTitle} - Episode ${formattedEp}${qSuffix}`;
-    } else {
-      baseName = `Episode ${formattedEp}${qSuffix}`;
+      animeTitle = animeTitle
+        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream).*$/i, '')
+        .replace(/\s*[-–—|:]*\s*Episode\s+\d+.*$/i, '')
+        .replace(/^[\s\-_–—|:]+|[\s\-_–—|:]+$/g, '')
+        .trim();
     }
 
-    const safeBase = baseName.replace(/[\/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+    let baseName = '';
+    if (hasExplicitEpisode) {
+      if (animeTitle) {
+        baseName = `${animeTitle} - Episode ${formattedEp}${qSuffix}`;
+      } else {
+        baseName = `Episode ${formattedEp}${qSuffix}`;
+      }
+    } else {
+      if (animeTitle) {
+        baseName = `${animeTitle}${qSuffix}`;
+      } else {
+        baseName = `Episode ${formattedEp}${qSuffix}`;
+      }
+    }
+
+    const safeBase = baseName
+      .replace(/[\/\\:*?"<>|]/g, '_')
+      .replace(/\s*[-–—]+\s*[-–—]+\s*/g, ' - ')
+      .replace(/\s+/g, ' ')
+      .trim();
     const filename = `${safeBase}.mp4`;
 
     const meta = {
+      isEpisode: hasExplicitEpisode,
       episodeNum: formattedEp,
       animeTitle: animeTitle || '',
+      title: animeTitle || 'Video',
       baseName: safeBase,
       filename: filename,
       quality: quality || null,
       timestamp: Date.now()
     };
 
-    if (!targetDoc && !quality) {
+    if (!targetDoc && !quality && !targetVideo) {
       cachedEpisodeMeta = meta;
     }
 
     return meta;
   }
+
+  // Find the best player container on any website
+  function findBestPlayerContainer(video) {
+    if (!video) return null;
+    if (video.nodeType === 1 && video.tagName !== 'VIDEO') {
+      return video;
+    }
+    const candidateSelectors = [
+      '#player-wrapper', '.player-container', '#player-container', '#player',
+      '.jwplayer', '.video-js', '.plyr', '.dplayer', '.art-video-player',
+      '#movie_player', '.html5-video-player', '.video-stream-container',
+      '[class*="player-wrapper"]', '[class*="player-container"]', '[class*="player-ui"]',
+      '[class*="video-player"]', '[class*="videoplayer"]', '[class*="video-wrap"]',
+      '.film-player', 'figure'
+    ];
+    for (const sel of candidateSelectors) {
+      try {
+        const found = video.closest(sel);
+        if (found && found !== document.body && found !== document.documentElement) {
+          return found;
+        }
+      } catch (e) {}
+    }
+    let p = video.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      try {
+        const style = window.getComputedStyle(p);
+        if (style && style.display !== 'inline' && style.display !== 'contents') {
+          return p;
+        }
+      } catch (e) {
+        return p;
+      }
+      p = p.parentElement;
+    }
+    return video.parentElement || document.body;
+  }
+
+  // Resolve genuine master playlist or direct video URL across DOM, variables, and player instances
+  function resolveActiveStreamUrl(targetVideo = null) {
+    // 1. Attached stream property on target video
+    if (targetVideo && targetVideo.__fg_stream_url__ && !isSegmentChunkUrl(targetVideo.__fg_stream_url__)) {
+      return targetVideo.__fg_stream_url__;
+    }
+
+    // 2. Active detected stream variable in current frame
+    if (detectedStreamUrl && !isSegmentChunkUrl(detectedStreamUrl)) {
+      return detectedStreamUrl;
+    }
+
+    // 3. Shared JSON bridge element set by inject.js in DOM (__fg_stream_data__)
+    try {
+      if (typeof document !== 'undefined') {
+        const dataEl = document.getElementById('__fg_stream_data__');
+        if (dataEl && dataEl.textContent) {
+          const payload = JSON.parse(dataEl.textContent);
+          // Prioritize direct mp4 if available
+          if (payload.mp4Stream && !isSegmentChunkUrl(payload.mp4Stream)) {
+            return payload.mp4Stream;
+          }
+          if (payload.activeStream && !isSegmentChunkUrl(payload.activeStream)) {
+            return payload.activeStream;
+          }
+          if (payload.hlsStream && !isSegmentChunkUrl(payload.hlsStream)) {
+            return payload.hlsStream;
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 4. DocumentElement bridge attributes set by inject.js in current frame
+    try {
+      if (typeof document !== 'undefined' && document.documentElement) {
+        const domMp4 = document.documentElement.getAttribute('data-focusguard-mp4-stream');
+        if (domMp4 && !isSegmentChunkUrl(domMp4)) return domMp4;
+        const domStream = document.documentElement.getAttribute('data-focusguard-active-stream');
+        if (domStream && !isSegmentChunkUrl(domStream)) return domStream;
+        const domHls = document.documentElement.getAttribute('data-focusguard-hls-stream');
+        if (domHls && !isSegmentChunkUrl(domHls)) return domHls;
+      }
+    } catch (e) {}
+
+    // 5. SessionStorage cache
+    try {
+      const sessStream = sessionStorage.getItem('fg_detected_stream_url');
+      if (sessStream && !isSegmentChunkUrl(sessStream)) return sessStream;
+    } catch (e) {}
+
+    // 6. Inspect window globals (if in same world or Node test environment)
+    try {
+      if (typeof window !== 'undefined' && window.initials && typeof window.initials === 'object') {
+        const str = JSON.stringify(window.initials).replace(/\\/g, '');
+        const mMp4 = str.match(/https?:\/\/[^"'\s\\]+?\.(?:mp4|webm)[^"'\s\\]*/);
+        if (mMp4 && !isSegmentChunkUrl(mMp4[0])) return mMp4[0];
+        const m = str.match(/https?:\/\/[^"'\s\\]+?\.m3u8[^"'\s\\]*/);
+        if (m && !isSegmentChunkUrl(m[0])) return m[0];
+      }
+    } catch (e) {}
+
+    // 7. Inspect all inline scripts in DOM (unescaping JSON backslashes)
+    try {
+      if (typeof document !== 'undefined') {
+        const initialsScript = document.getElementById('initials') || document.querySelector('script[data-initials]');
+        if (initialsScript && initialsScript.textContent) {
+          const cleanText = initialsScript.textContent.replace(/\\/g, '');
+          const mMp4 = cleanText.match(/https?:\/\/[^"'\s\\]+?\.(?:mp4|webm)[^"'\s\\]*/);
+          if (mMp4 && !isSegmentChunkUrl(mMp4[0])) return mMp4[0];
+          const m = cleanText.match(/https?:\/\/[^"'\s\\]+?\.m3u8[^"'\s\\]*/);
+          if (m && !isSegmentChunkUrl(m[0])) return m[0];
+        }
+
+        const allScripts = document.querySelectorAll('script:not([src])');
+        for (let i = 0; i < allScripts.length; i++) {
+          const txt = allScripts[i].textContent;
+          if (txt && (txt.includes('.mp4') || txt.includes('.m3u8') || txt.includes('.webm'))) {
+            const cleanText = txt.replace(/\\/g, '');
+            const mMp4 = cleanText.match(/https?:\/\/[^"'\s\\]+?\.(?:mp4|webm)[^"'\s\\]*/);
+            if (mMp4 && !isSegmentChunkUrl(mMp4[0])) return mMp4[0];
+            const m = cleanText.match(/https?:\/\/[^"'\s\\]+?\.m3u8[^"'\s\\]*/);
+            if (m && !isSegmentChunkUrl(m[0])) return m[0];
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 8. Inspect metadata tags (og:video, twitter:player:stream, preload links)
+    try {
+      if (typeof document !== 'undefined') {
+        const ogVid = document.querySelector('meta[property="og:video"], meta[property="og:video:url"], meta[name="twitter:player:stream"]');
+        if (ogVid && ogVid.content && !isSegmentChunkUrl(ogVid.content)) {
+          return ogVid.content;
+        }
+        const linkVid = document.querySelector('link[rel="preload"][as="video"], link[rel="preload"][href*=".m3u8"], link[rel="preload"][href*=".mp4"]');
+        if (linkVid && linkVid.href && !isSegmentChunkUrl(linkVid.href)) {
+          return linkVid.href;
+        }
+        const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+        for (let i = 0; i < ldScripts.length; i++) {
+          try {
+            const data = JSON.parse(ldScripts[i].textContent);
+            const cUrl = data.contentUrl || (data.video && data.video.contentUrl);
+            if (cUrl && typeof cUrl === 'string' && !isSegmentChunkUrl(cUrl)) return cUrl;
+          } catch (err) {}
+        }
+      }
+    } catch (e) {}
+
+    // 9. Inspect player JS instances (Hls.js, JWPlayer, Video.js, Plyr, DPlayer, ArtPlayer)
+    if (targetVideo) {
+      if (targetVideo.player) {
+        try {
+          const vjsSrc = targetVideo.player.currentSrc ? targetVideo.player.currentSrc() : targetVideo.player.src();
+          if (vjsSrc && !isSegmentChunkUrl(vjsSrc)) return vjsSrc;
+        } catch (e) {}
+      }
+      if (targetVideo.plyr && targetVideo.plyr.source && !isSegmentChunkUrl(targetVideo.plyr.source)) {
+        return targetVideo.plyr.source;
+      }
+      if (targetVideo.__hls__ && targetVideo.__hls__.url && !isSegmentChunkUrl(targetVideo.__hls__.url)) {
+        return targetVideo.__hls__.url;
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      if (window.hls && window.hls.url && !isSegmentChunkUrl(window.hls.url)) {
+        return window.hls.url;
+      }
+      if (window.dp && window.dp.video && window.dp.video.src && !isSegmentChunkUrl(window.dp.video.src)) {
+        return window.dp.video.src;
+      }
+      if (window.art && window.art.url && !isSegmentChunkUrl(window.art.url)) {
+        return window.art.url;
+      }
+      if (typeof window.jwplayer === 'function') {
+        try {
+          const jw = window.jwplayer();
+          if (jw) {
+            const item = (typeof jw.getPlaylistItem === 'function') ? jw.getPlaylistItem() : null;
+            if (item && item.file && !isSegmentChunkUrl(item.file)) return item.file;
+            const list = (typeof jw.getPlaylist === 'function') ? jw.getPlaylist() : null;
+            if (list && list[0] && list[0].file && !isSegmentChunkUrl(list[0].file)) return list[0].file;
+          }
+        } catch (e) {}
+      }
+      if (Array.isArray(window.__focusguard_detected_streams__)) {
+        const validM3u8 = window.__focusguard_detected_streams__.find(s => s.includes('.m3u8') && !isSegmentChunkUrl(s));
+        if (validM3u8) return validM3u8;
+        const valid = window.__focusguard_detected_streams__.find(s => !isSegmentChunkUrl(s));
+        if (valid) return valid;
+      }
+    }
+
+    // 10. Inspect candidate child iframes in document
+    try {
+      if (typeof document !== 'undefined') {
+        const ifrs = document.querySelectorAll('iframe');
+        for (let i = 0; i < ifrs.length; i++) {
+          try {
+            const ifrDoc = ifrs[i].contentDocument;
+            if (ifrDoc && ifrDoc.documentElement) {
+              const ifrStream = ifrDoc.documentElement.getAttribute('data-focusguard-active-stream') || ifrDoc.documentElement.getAttribute('data-focusguard-mp4-stream');
+              if (ifrStream && !isSegmentChunkUrl(ifrStream)) return ifrStream;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    // 11. Inspect <source> child tags on video
+    if (targetVideo && targetVideo.querySelectorAll) {
+      const sources = targetVideo.querySelectorAll('source');
+      for (let i = 0; i < sources.length; i++) {
+        const s = sources[i].src || sources[i].getAttribute('src') || sources[i].getAttribute('data-src');
+        if (s && !isSegmentChunkUrl(s)) return s;
+      }
+    }
+
+    // 12. Direct video element attributes
+    if (targetVideo) {
+      const direct = targetVideo.currentSrc || targetVideo.src || targetVideo.getAttribute('src') || targetVideo.getAttribute('data-src');
+      if (direct && !isSegmentChunkUrl(direct)) return direct;
+    }
+
+    // 13. Fallback: inspect any other video element in DOM
+    try {
+      if (typeof document !== 'undefined') {
+        const allVideos = document.querySelectorAll('video');
+        for (let i = 0; i < allVideos.length; i++) {
+          const other = allVideos[i];
+          if (other && other !== targetVideo) {
+            const oSrc = other.__fg_stream_url__ || other.currentSrc || other.src;
+            if (oSrc && !isSegmentChunkUrl(oSrc)) return oSrc;
+          }
+        }
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  // Helper: Convert HLS BYTERANGE (length@offset) to HTTP Range header value (offset-end)
+  function parseHlsByteRange(str) {
+    if (!str) return null;
+    const parts = String(str).trim().replace(/^"/, '').replace(/"$/, '').split('@');
+    const length = parseInt(parts[0], 10);
+    if (isNaN(length) || length <= 0) return null;
+    const offset = parts[1] !== undefined ? parseInt(parts[1], 10) : 0;
+    return `${offset}-${offset + length - 1}`;
+  }
+
+  // Format internet data consumption string
+  function formatDataSize(bytes) {
+    if (!bytes || isNaN(bytes) || bytes <= 0) return '~200 MB';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1000) {
+      return `~${(mb / 1024).toFixed(1)} GB`;
+    }
+    return `~${Math.round(mb)} MB`;
+  }
+
+  // Parses master playlist for 1080p, 720p, 480p streams and calculates internet data required
+  function parseMasterPlaylist(playlistText, baseUrl, videoDuration = null) {
+    const duration = (videoDuration && !isNaN(videoDuration) && videoDuration > 60) ? videoDuration : 1440;
+
+    const defaults = {
+      '1080p': { label: '1080p Full HD', bandwidth: 2600000, desc: 'Ultra Crisp • Best Quality' },
+      '720p':  { label: '720p HD',      bandwidth: 1350000, desc: 'Balanced • Standard HD' },
+      '480p':  { label: '480p SD',      bandwidth: 650000,  desc: 'Data Saver • Fast Download' }
+    };
+
+    const tiers = {
+      '1080p': { quality: '1080p', label: defaults['1080p'].label, desc: defaults['1080p'].desc, url: baseUrl, bandwidth: defaults['1080p'].bandwidth },
+      '720p':  { quality: '720p',  label: defaults['720p'].label,  desc: defaults['720p'].desc,  url: baseUrl, bandwidth: defaults['720p'].bandwidth },
+      '480p':  { quality: '480p',  label: defaults['480p'].label,  desc: defaults['480p'].desc,  url: baseUrl, bandwidth: defaults['480p'].bandwidth }
+    };
+
+    if (playlistText && playlistText.includes('#EXT-X-STREAM-INF')) {
+      const lines = playlistText.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('#EXT-X-STREAM-INF')) {
+          let j = i + 1;
+          while (j < lines.length && (!lines[j].trim() || lines[j].trim().startsWith('#'))) j++;
+          if (j < lines.length) {
+            let streamUrl = lines[j].trim();
+            try {
+              streamUrl = new URL(streamUrl, baseUrl).href;
+            } catch (e) {}
+
+            const resMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
+            const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+            const bw = bwMatch ? parseInt(bwMatch[1], 10) : 0;
+            const height = resMatch ? parseInt(resMatch[1], 10) : 0;
+
+            if (height >= 1000 || /1080/i.test(lines[j])) {
+              tiers['1080p'].url = streamUrl;
+              if (bw > 0) tiers['1080p'].bandwidth = bw;
+            } else if ((height >= 650 && height < 1000) || /720/i.test(lines[j])) {
+              tiers['720p'].url = streamUrl;
+              if (bw > 0) tiers['720p'].bandwidth = bw;
+            } else if ((height >= 400 && height < 650) || /480/i.test(lines[j])) {
+              tiers['480p'].url = streamUrl;
+              if (bw > 0) tiers['480p'].bandwidth = bw;
+            }
+          }
+        }
+      }
+    }
+
+    return ['1080p', '720p', '480p'].map((q) => {
+      const item = tiers[q];
+      const totalBytes = (item.bandwidth / 8) * duration;
+      return {
+        quality: item.quality,
+        label: item.label,
+        desc: item.desc,
+        url: item.url,
+        estimatedBytes: totalBytes,
+        dataSize: formatDataSize(totalBytes)
+      };
+    });
+  }
+
+  // Discovers and filters ONLY the qualities that actually exist on the player control or stream
+  function getAvailableQualities(videoEl, playlistText, baseUrl, videoDuration = null) {
+    const duration = (videoDuration && !isNaN(videoDuration) && videoDuration > 60) ? videoDuration : 
+                     (videoEl && !isNaN(videoEl.duration) && videoEl.duration > 60 ? videoEl.duration : 1440);
+
+    const foundQualities = new Map();
+
+    const defaultMeta = {
+      '4K':    { label: '4K Ultra HD',   desc: 'Cinema 2160p • Maximum Fidelity', bandwidth: 8500000 },
+      '1440p': { label: '1440p 2K QHD',  desc: 'Quad HD • Crystal Clear',        bandwidth: 5000000 },
+      '1080p': { label: '1080p Full HD', desc: 'Ultra Crisp • Best Quality',     bandwidth: 2600000 },
+      '720p':  { label: '720p HD',       desc: 'Balanced • Standard HD',         bandwidth: 1350000 },
+      '480p':  { label: '480p SD',       desc: 'Data Saver • Fast Download',     bandwidth: 650000 },
+      '360p':  { label: '360p Low',      desc: 'Mobile Saver • Light Data',      bandwidth: 350000 },
+      '240p':  { label: '240p Eco',      desc: 'Minimal Data • Fast',            bandwidth: 200000 }
+    };
+
+    function registerQuality(qName, url = baseUrl, bandwidth = null) {
+      if (!qName) return;
+      const cleanQ = String(qName).toLowerCase().trim();
+      let norm = null;
+      if (cleanQ.includes('2160') || cleanQ.includes('4k')) norm = '4K';
+      else if (cleanQ.includes('1440') || cleanQ.includes('2k')) norm = '1440p';
+      else if (cleanQ.includes('1080')) norm = '1080p';
+      else if (cleanQ.includes('720')) norm = '720p';
+      else if (cleanQ.includes('480')) norm = '480p';
+      else if (cleanQ.includes('360')) norm = '360p';
+      else if (cleanQ.includes('240')) norm = '240p';
+
+      if (!norm) return;
+      if (!foundQualities.has(norm)) {
+        const def = defaultMeta[norm] || { label: norm, desc: 'Video Stream', bandwidth: 1000000 };
+        foundQualities.set(norm, {
+          quality: norm,
+          label: def.label,
+          desc: def.desc,
+          url: url || baseUrl,
+          bandwidth: bandwidth || def.bandwidth
+        });
+      } else if (bandwidth && bandwidth > foundQualities.get(norm).bandwidth) {
+        foundQualities.get(norm).bandwidth = bandwidth;
+        if (url) foundQualities.get(norm).url = url;
+      }
+    }
+
+    // 1. Inspect DOM player control quality items
+    try {
+      let root = null;
+      if (videoEl) {
+        if (typeof videoEl.closest === 'function') {
+          root = videoEl.closest('.player-container, #player, .film-player, .vjs-player, .jwplayer, .plyr, #player-wrapper, #player-container, .player, .video-player');
+        }
+        if (!root && (videoEl.parentElement || videoEl.parent)) {
+          root = videoEl.parentElement || videoEl.parent;
+        }
+      }
+      if (!root && typeof document !== 'undefined') {
+        root = document;
+      }
+      if (root) {
+        const qualitySelectors = [
+          '.vjs-quality-selector .vjs-menu-item',
+          '.vjs-resolution-button .vjs-menu-item',
+          '.plyr__menu [data-plyr="quality"]',
+          '.jw-settings-content-item[data-jw-enum="quality"]',
+          '.art-control-quality-item',
+          '.dplayer-quality-item',
+          '[aria-label*="Quality" i] button',
+          '[data-quality]',
+          '.quality-item',
+          '.btn-quality'
+        ];
+        const items = root.querySelectorAll(qualitySelectors.join(', '));
+        if (items && items.length > 0) {
+          items.forEach(el => {
+            const txt = (el.getAttribute('data-quality') || el.textContent || '').trim();
+            if (txt && !/auto/i.test(txt)) {
+              registerQuality(txt);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Inspect Player instance API (Hls.js, JWPlayer, Video.js)
+    try {
+      const hlsInst = (videoEl && videoEl.__hls__) || (typeof window !== 'undefined' ? window.hls : null);
+      if (hlsInst && Array.isArray(hlsInst.levels) && hlsInst.levels.length > 0) {
+        hlsInst.levels.forEach(lvl => {
+          if (lvl && lvl.height) {
+            let streamUrl = lvl.url || baseUrl;
+            if (Array.isArray(streamUrl)) streamUrl = streamUrl[0];
+            registerQuality(lvl.height + 'p', streamUrl, lvl.bitrate);
+          }
+        });
+      }
+    } catch (e) {}
+
+    try {
+      if (typeof window !== 'undefined' && typeof window.jwplayer === 'function') {
+        const jw = window.jwplayer();
+        if (jw && typeof jw.getQualityLevels === 'function') {
+          const levels = jw.getQualityLevels() || [];
+          levels.forEach(lvl => {
+            const lbl = (lvl && lvl.label) ? String(lvl.label) : '';
+            if (lbl && !/auto/i.test(lbl)) {
+              registerQuality(lbl);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 3. Inspect <source> tags on video element
+    try {
+      if (videoEl && videoEl.querySelectorAll) {
+        const sources = videoEl.querySelectorAll('source');
+        if (sources && sources.length > 1) {
+          sources.forEach(s => {
+            const label = s.getAttribute('label') || s.getAttribute('size') || s.getAttribute('title') || s.getAttribute('res') || '';
+            const src = s.src || s.getAttribute('src');
+            if (label) {
+              registerQuality(label, src);
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 4. Inspect HLS Master Playlist if provided
+    if (playlistText && playlistText.includes('#EXT-X-STREAM-INF')) {
+      const lines = playlistText.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('#EXT-X-STREAM-INF')) {
+          let j = i + 1;
+          while (j < lines.length && (!lines[j].trim() || lines[j].trim().startsWith('#'))) j++;
+          if (j < lines.length) {
+            let streamUrl = lines[j].trim();
+            try {
+              streamUrl = new URL(streamUrl, baseUrl).href;
+            } catch (e) {}
+            const resMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
+            const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
+            const bw = bwMatch ? parseInt(bwMatch[1], 10) : null;
+            const height = resMatch ? parseInt(resMatch[1], 10) : 0;
+            if (height > 0) {
+              registerQuality(height + 'p', streamUrl, bw);
+            } else if (/1080/i.test(lines[j])) {
+              registerQuality('1080p', streamUrl, bw);
+            } else if (/720/i.test(lines[j])) {
+              registerQuality('720p', streamUrl, bw);
+            } else if (/480/i.test(lines[j])) {
+              registerQuality('480p', streamUrl, bw);
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Inspect __fg_stream_data__ bridge or DOM scripts for direct MP4 and HLS sources
+    try {
+      if (typeof document !== 'undefined') {
+        const dataEl = document.getElementById('__fg_stream_data__');
+        if (dataEl && dataEl.textContent) {
+          const payload = JSON.parse(dataEl.textContent);
+          if (payload.mp4Streams && typeof payload.mp4Streams === 'object') {
+            if (Array.isArray(payload.mp4Streams)) {
+              payload.mp4Streams.forEach(url => {
+                const qMatch = url.match(/(2160|1440|1080|720|480|360|240)p?/i);
+                if (qMatch) registerQuality(qMatch[1] + 'p', url);
+              });
+            } else {
+              Object.keys(payload.mp4Streams).forEach(qKey => {
+                registerQuality(qKey, payload.mp4Streams[qKey]);
+              });
+            }
+          }
+        }
+
+        const initialsScript = document.getElementById('initials') || document.querySelector('script[data-initials]');
+        if (initialsScript && initialsScript.textContent) {
+          const cleanText = initialsScript.textContent.replace(/\\/g, '');
+          const mp4Matches = cleanText.match(/https?:\/\/[^"'\s\\]+?\.(?:mp4|webm)[^"'\s\\]*/g);
+          if (mp4Matches) {
+            mp4Matches.forEach(url => {
+              const qMatch = url.match(/(2160|1440|1080|720|480|360|240)p?/i);
+              if (qMatch) registerQuality(qMatch[1] + 'p', url);
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    const sortOrder = ['4K', '1440p', '1080p', '720p', '480p', '360p', '240p'];
+    const result = [];
+    for (const q of sortOrder) {
+      if (foundQualities.has(q)) {
+        const item = foundQualities.get(q);
+        const totalBytes = (item.bandwidth / 8) * duration;
+        result.push({
+          quality: item.quality,
+          label: item.label,
+          desc: item.desc,
+          url: item.url,
+          bandwidth: item.bandwidth,
+          estimatedBytes: totalBytes,
+          dataSize: formatDataSize(totalBytes)
+        });
+      }
+    }
+
+    return result;
+  }
+
+  try {
+    if (typeof window !== 'undefined') {
+      window.__focusguard_get_available_qualities__ = getAvailableQualities;
+      window.__focusguard_resolve_active_stream__ = resolveActiveStreamUrl;
+      window.__focusguard_parse_playlist__ = parseMasterPlaylist;
+      window.__focusguard_parse_byterange__ = parseHlsByteRange;
+      window.__focusguard_format_size__ = formatDataSize;
+    }
+  } catch (e) {}
 
   // Mount cyber-sleek download button directly onto player container
   function mountDownloadButton(targetOrVideo) {
@@ -650,9 +1293,7 @@
 
     if (targetOrVideo.tagName === 'VIDEO') {
       videoEl = targetOrVideo;
-      container = videoEl.closest(
-        '#player-wrapper, .player-container, #player-container, #player, .jwplayer, .video-js, .art-video-player, .dplayer, [class*="player-container"], [class*="player-wrapper"]'
-      ) || videoEl.parentElement;
+      container = findBestPlayerContainer(videoEl);
     } else {
       container = targetOrVideo;
       videoEl = container.querySelector('video') || activeVideo;
@@ -661,7 +1302,7 @@
     if (!container) return;
 
     if (container.querySelector('#focusguard-download-btn')) {
-      updateDownloadButtonLabel(container.querySelector('#focusguard-download-btn'));
+      updateDownloadButtonLabel(container.querySelector('#focusguard-download-btn'), videoEl);
       return;
     }
 
@@ -675,15 +1316,21 @@
     const host = document.createElement('div');
     host.className = 'fg-download-btn-host fg-btn-visible';
     host.id = 'focusguard-download-btn-host';
+    host.__fg_video__ = videoEl;
 
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = 'focusguard-download-btn';
     btn.className = 'fg-player-download-btn';
-    btn.setAttribute('aria-label', 'Download Episode Video');
+    btn.setAttribute('aria-label', 'Download Video');
+    btn.__fg_video__ = videoEl;
 
-    const meta = getEpisodeMetadata();
-    btn.title = `Download Episode ${meta.episodeNum} (${meta.filename})`;
+    const meta = getEpisodeMetadata(document, null, videoEl);
+    btn.title = meta.isEpisode
+      ? `Download Episode ${meta.episodeNum} (${meta.filename})`
+      : `Download Video (${meta.filename})`;
+
+    const badgeText = meta.isEpisode ? `EP ${meta.episodeNum}` : (meta.quality || 'HD');
 
     btn.innerHTML = `
       <span class="fg-player-download-icon">
@@ -694,13 +1341,41 @@
         </svg>
       </span>
       <span class="fg-player-download-label">Download</span>
-      <span class="fg-player-download-badge" id="fg-download-ep-badge">EP ${meta.episodeNum}</span>
+      <span class="fg-player-download-badge" id="fg-download-ep-badge">${badgeText}</span>
     `;
 
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      toggleQualityPopover(host, btn);
+
+      const v = (btn && btn.__fg_video__) || (host && host.__fg_video__) || activeVideo;
+      const streamTarget = (typeof resolveActiveStreamUrl === 'function')
+        ? resolveActiveStreamUrl(v)
+        : ((typeof window !== 'undefined' && typeof window.__focusguard_resolve_active_stream__ === 'function')
+            ? window.__focusguard_resolve_active_stream__(v)
+            : null);
+
+      let available = [];
+      try {
+        const getQualitiesFn = (typeof getAvailableQualities === 'function')
+          ? getAvailableQualities
+          : ((typeof window !== 'undefined' && typeof window.__focusguard_get_available_qualities__ === 'function')
+              ? window.__focusguard_get_available_qualities__
+              : null);
+        if (getQualitiesFn) {
+          available = getQualitiesFn(v, cachedPlaylistText, streamTarget);
+        }
+      } catch (qErr) {
+        console.warn('[FocusGuard] Quality detection failed:', qErr);
+      }
+
+      // If multiple qualities actually exist on the player control, show quality selector
+      if (available && available.length > 1) {
+        toggleQualityPopover(host, btn);
+      } else {
+        // If not available, directly download at max quality possible as per the video!
+        downloadActiveVideo('max', null, v);
+      }
     });
 
     host.appendChild(btn);
@@ -738,36 +1413,53 @@
     }
   }
 
-  function updateDownloadButtonLabel(btn) {
+  function updateDownloadButtonLabel(btn, targetVideo = null) {
     if (!btn) return;
-    const meta = getEpisodeMetadata();
+    const v = targetVideo || btn.__fg_video__ || activeVideo;
+    const meta = getEpisodeMetadata(null, null, v);
     const badge = btn.querySelector('#fg-download-ep-badge');
-    if (badge && badge.textContent !== `EP ${meta.episodeNum}`) {
-      badge.textContent = `EP ${meta.episodeNum}`;
-      btn.title = `Download Episode ${meta.episodeNum} (${meta.filename})`;
+    const badgeText = meta.isEpisode ? `EP ${meta.episodeNum}` : (meta.quality || 'HD');
+    if (badge && badge.textContent !== badgeText) {
+      badge.textContent = badgeText;
+    }
+    const titleText = meta.isEpisode
+      ? `Download Episode ${meta.episodeNum} (${meta.filename})`
+      : `Download Video (${meta.filename})`;
+    if (btn.title !== titleText) {
+      btn.title = titleText;
     }
   }
 
   function checkAndMountPlayerDownloadButton() {
     if (!isEnabled()) return;
-    if (activeVideo) {
-      mountDownloadButton(activeVideo);
-      return;
-    }
-    const ifr = document.querySelector(
-      'iframe[src*="embed"], iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="vidsrc"], iframe[src*="stream"], #iframe-embed'
+    // 1. Scan and mount on all discovered videos across DOM and Shadow DOMs
+    const videos = getAllVideos(document);
+    videos.forEach((v) => {
+      mountDownloadButton(v);
+    });
+
+    // 2. Scan and mount on candidate embedded player iframes or their containers
+    const iframes = document.querySelectorAll(
+      'iframe[src*="embed"], iframe[src*="player"], iframe[src*="video"], iframe[src*="stream"], iframe[src*="vidsrc"], iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="youtube"], iframe[src*="vimeo"], iframe[src*="dailymotion"], iframe[allow*="fullscreen"], iframe[allowfullscreen], #iframe-embed, .film-player iframe'
     );
-    if (ifr) {
-      const playerWrapper = ifr.closest('#player-wrapper, .player-container, #player, .film-player') || ifr.parentElement;
-      if (playerWrapper) {
+    iframes.forEach((ifr) => {
+      const playerWrapper = ifr.closest('#player-wrapper, .player-container, #player, .film-player, [class*="player"], [id*="player"]') || ifr.parentElement;
+      if (playerWrapper && !playerWrapper.querySelector('#focusguard-download-btn')) {
         mountDownloadButton(playerWrapper);
       }
-    }
+    });
   }
 
   // Trigger file download via chrome.downloads or synthetic anchor fallback
   function triggerFileSave(target, filename) {
     if (!target) return;
+
+    let cleanFilename = filename ? String(filename).trim() : 'video.mp4';
+    cleanFilename = cleanFilename.replace(/\.(m4s|ts|m3u8|mpd)$/i, '');
+    if (!cleanFilename.toLowerCase().endsWith('.mp4')) {
+      cleanFilename += '.mp4';
+    }
+    filename = cleanFilename;
 
     // Case 1: Extension-assembled Blob object
     if (target instanceof Blob || (typeof Blob !== 'undefined' && target instanceof Blob)) {
@@ -856,14 +1548,16 @@
   }
 
   // Fetch stream resource safely using background proxy to eliminate CDN HTTP 403 Forbidden
-  async function fetchResourceSafe(url, embedUrl = null, asBinary = false) {
+  async function fetchResourceSafe(url, embedUrl = null, asBinary = false, byteRange = null) {
     let effectiveEmbed = embedUrl || detectedEmbedUrl;
     if (!effectiveEmbed) {
       if (window !== window.top) {
         effectiveEmbed = window.location.href;
       } else {
-        const ifr = document.querySelector('iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="embed"], iframe[src*="vidsrc"], iframe[src*="rabbitstream"]');
-        if (ifr && ifr.src) effectiveEmbed = ifr.src;
+        const ifr = document.querySelector('iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="embed"], iframe[src*="vidsrc"], iframe[src*="rabbitstream"], iframe[src*="player"], iframe[src*="stream"], iframe[src*="video"], .film-player iframe, #iframe-embed');
+        if (ifr && (ifr.src || ifr.getAttribute('data-src') || ifr.getAttribute('data-url'))) {
+          effectiveEmbed = ifr.src || ifr.getAttribute('data-src') || ifr.getAttribute('data-url');
+        }
       }
     }
     if (!effectiveEmbed) effectiveEmbed = window.location.href;
@@ -875,7 +1569,8 @@
             action: 'fetch_stream_data',
             url: url,
             embedUrl: effectiveEmbed,
-            asBinary: asBinary
+            asBinary: asBinary,
+            byteRange: byteRange
           }, (response) => {
             if (chrome.runtime.lastError) {
               resolve({ success: false, error: chrome.runtime.lastError.message });
@@ -903,82 +1598,13 @@
     }
 
     // Direct fetch fallback
-    const res = await fetch(url);
+    const fetchOpts = {};
+    if (byteRange) {
+      fetchOpts.headers = { 'Range': `bytes=${byteRange}` };
+    }
+    const res = await fetch(url, fetchOpts);
     if (!res.ok) throw new Error(`Playlist HTTP ${res.status}`);
     return asBinary ? await res.arrayBuffer() : await res.text();
-  }
-
-  // Format internet data consumption string
-  function formatDataSize(bytes) {
-    if (!bytes || isNaN(bytes) || bytes <= 0) return '~200 MB';
-    const mb = bytes / (1024 * 1024);
-    if (mb >= 1000) {
-      return `~${(mb / 1024).toFixed(1)} GB`;
-    }
-    return `~${Math.round(mb)} MB`;
-  }
-
-  // Parses master playlist for 1080p, 720p, 480p streams and calculates internet data required
-  function parseMasterPlaylist(playlistText, baseUrl, videoDuration = null) {
-    const duration = (videoDuration && !isNaN(videoDuration) && videoDuration > 60) ? videoDuration : 1440;
-
-    const defaults = {
-      '1080p': { label: '1080p Full HD', bandwidth: 2600000, desc: 'Ultra Crisp • Best Quality' },
-      '720p':  { label: '720p HD',      bandwidth: 1350000, desc: 'Balanced • Standard HD' },
-      '480p':  { label: '480p SD',      bandwidth: 650000,  desc: 'Data Saver • Fast Download' }
-    };
-
-    const tiers = {
-      '1080p': { quality: '1080p', label: defaults['1080p'].label, desc: defaults['1080p'].desc, url: baseUrl, bandwidth: defaults['1080p'].bandwidth },
-      '720p':  { quality: '720p',  label: defaults['720p'].label,  desc: defaults['720p'].desc,  url: baseUrl, bandwidth: defaults['720p'].bandwidth },
-      '480p':  { quality: '480p',  label: defaults['480p'].label,  desc: defaults['480p'].desc,  url: baseUrl, bandwidth: defaults['480p'].bandwidth }
-    };
-
-    if (playlistText && playlistText.includes('#EXT-X-STREAM-INF')) {
-      const lines = playlistText.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.startsWith('#EXT-X-STREAM-INF')) {
-          let j = i + 1;
-          while (j < lines.length && (!lines[j].trim() || lines[j].trim().startsWith('#'))) j++;
-          if (j < lines.length) {
-            let streamUrl = lines[j].trim();
-            try {
-              streamUrl = new URL(streamUrl, baseUrl).href;
-            } catch (e) {}
-
-            const resMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
-            const bwMatch = line.match(/BANDWIDTH=(\d+)/i);
-            const bw = bwMatch ? parseInt(bwMatch[1], 10) : 0;
-            const height = resMatch ? parseInt(resMatch[1], 10) : 0;
-
-            if (height >= 1000 || /1080/i.test(lines[j])) {
-              tiers['1080p'].url = streamUrl;
-              if (bw > 0) tiers['1080p'].bandwidth = bw;
-            } else if ((height >= 650 && height < 1000) || /720/i.test(lines[j])) {
-              tiers['720p'].url = streamUrl;
-              if (bw > 0) tiers['720p'].bandwidth = bw;
-            } else if ((height >= 400 && height < 650) || /480/i.test(lines[j])) {
-              tiers['480p'].url = streamUrl;
-              if (bw > 0) tiers['480p'].bandwidth = bw;
-            }
-          }
-        }
-      }
-    }
-
-    return ['1080p', '720p', '480p'].map((q) => {
-      const item = tiers[q];
-      const totalBytes = (item.bandwidth / 8) * duration;
-      return {
-        quality: item.quality,
-        label: item.label,
-        desc: item.desc,
-        url: item.url,
-        estimatedBytes: totalBytes,
-        dataSize: formatDataSize(totalBytes)
-      };
-    });
   }
 
   // Toggles the quality selector popover directly beneath the download button
@@ -1032,15 +1658,27 @@
 
   function renderQualityPopoverContent(popover, host, btn) {
     if (!popover) return;
-    const meta = getEpisodeMetadata();
-    const duration = (activeVideo && !isNaN(activeVideo.duration) && activeVideo.duration > 30) ? activeVideo.duration : 1440;
-    const streamTarget = detectedStreamUrl || (activeVideo ? (activeVideo.currentSrc || activeVideo.src) : null) || (typeof window !== 'undefined' ? window.location.href : '');
-    const tiers = parseMasterPlaylist(cachedPlaylistText, streamTarget, duration);
+    const targetVideo = (btn && btn.__fg_video__) || (host && host.__fg_video__) || activeVideo;
+    const meta = getEpisodeMetadata(null, '1080p', targetVideo);
+    const duration = (targetVideo && !isNaN(targetVideo.duration) && targetVideo.duration > 30) ? targetVideo.duration : 1440;
+    const streamTarget = (targetVideo && targetVideo.__fg_stream_url__) || detectedStreamUrl || (targetVideo ? (targetVideo.currentSrc || targetVideo.src) : null) || (typeof window !== 'undefined' ? window.location.href : '');
+    let available = [];
+    try {
+      const getQualitiesFn = (typeof getAvailableQualities === 'function')
+        ? getAvailableQualities
+        : ((typeof window !== 'undefined' && typeof window.__focusguard_get_available_qualities__ === 'function')
+            ? window.__focusguard_get_available_qualities__
+            : null);
+      if (getQualitiesFn) {
+        available = getQualitiesFn(targetVideo, cachedPlaylistText, streamTarget, duration);
+      }
+    } catch (e) {}
+    const tiers = (available && available.length > 0) ? available : parseMasterPlaylist(cachedPlaylistText, streamTarget, duration);
 
     let itemsHtml = '';
     tiers.forEach((tier) => {
-      const tierClass = tier.quality === '1080p' ? 'fg-tier-1080' :
-                        tier.quality === '720p' ? 'fg-tier-720' : 'fg-tier-480';
+      const tierClass = tier.quality === '4K' || tier.quality === '1080p' ? 'fg-tier-1080' :
+                        tier.quality === '1440p' || tier.quality === '720p' ? 'fg-tier-720' : 'fg-tier-480';
       itemsHtml += `
         <div class="fg-quality-item" data-quality="${tier.quality}" role="button" tabindex="0">
           <div class="fg-quality-item-left">
@@ -1058,10 +1696,12 @@
       `;
     });
 
+    const epPill = meta.isEpisode ? `EP ${meta.episodeNum}` : (meta.quality || 'HD');
+
     popover.innerHTML = `
       <div class="fg-quality-header">
         <span class="fg-quality-title">Choose Quality</span>
-        <span class="fg-quality-ep-pill">EP ${meta.episodeNum}</span>
+        <span class="fg-quality-ep-pill">${epPill}</span>
       </div>
       <div class="fg-quality-list">
         ${itemsHtml}
@@ -1076,63 +1716,234 @@
         e.preventDefault();
         e.stopPropagation();
         closeQualityPopover(popover);
-        downloadActiveVideo(q);
+        downloadActiveVideo(q, null, targetVideo);
       });
     });
   }
 
-  // HLS stream downloader: fetches playlist and segments, stitches into video blob
+  // Helper: Convert hex string to Uint8Array for AES-128 IV
+  function hexToUint8Array(hex) {
+    if (!hex) return new Uint8Array(16);
+    let clean = String(hex).replace(/^0x/i, '').trim();
+    if (clean.length % 2 !== 0) clean = '0' + clean;
+    const arr = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < clean.length; i += 2) {
+      arr[i / 2] = parseInt(clean.substr(i, 2), 16);
+    }
+    return arr;
+  }
+
+  // Helper: Construct 16-byte big-endian IV from sequence number (RFC 8216)
+  function makeSequenceIv(seq) {
+    const iv = new Uint8Array(16);
+    const view = new DataView(iv.buffer);
+    view.setUint32(12, (seq || 0) >>> 0, false);
+    return iv;
+  }
+
+  // Key cache for AES-128 HLS streams
+  const hlsKeyCache = new Map();
+  async function getCryptoKey(keyUrl, embedUrl) {
+    if (hlsKeyCache.has(keyUrl)) {
+      return hlsKeyCache.get(keyUrl);
+    }
+    const keyBuf = await fetchResourceSafe(keyUrl, embedUrl, true);
+    if (!keyBuf || keyBuf.byteLength < 16) {
+      throw new Error('Invalid encryption key length: ' + (keyBuf ? keyBuf.byteLength : 0));
+    }
+    const keyBytes = keyBuf.byteLength === 16 ? keyBuf : keyBuf.slice(0, 16);
+    const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
+    if (!subtle) {
+      throw new Error('Web Crypto API not available for AES-128 decryption');
+    }
+    const cryptoKey = await subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
+    hlsKeyCache.set(keyUrl, cryptoKey);
+    return cryptoKey;
+  }
+
+  // Helper: Decrypt AES-128 CBC segment
+  async function decryptSegmentData(buffer, cryptoKey, iv) {
+    const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
+    if (!subtle || !cryptoKey || !iv) return buffer;
+    try {
+      return await subtle.decrypt({ name: 'AES-CBC', iv: iv }, cryptoKey, buffer);
+    } catch (err) {
+      console.warn('[FocusGuard] Segment decryption error:', err);
+      return buffer;
+    }
+  }
+
+  // Universal HLS stream downloader: fetches playlist, segments, decrypts AES-128, handles fMP4, and stitches into blob
   async function downloadHlsStream(m3u8Url, filename, onProgress, chosenQuality = '1080p', embedUrl = null) {
+    // Proactively arm CDN header bypass in background service worker
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'arm_stream_bypass',
+          url: m3u8Url,
+          embedUrl: embedUrl || detectedEmbedUrl || (typeof window !== 'undefined' ? window.location.href : '')
+        });
+      }
+    } catch (e) {}
+
     let mediaPlaylistUrl = m3u8Url;
-    let playlistContent = cachedPlaylistText;
+    let playlistContent = (cachedPlaylistUrl === m3u8Url) ? cachedPlaylistText : null;
 
     if (!playlistContent) {
       playlistContent = await fetchResourceSafe(m3u8Url, embedUrl, false);
+      if (playlistContent) {
+        cachedPlaylistUrl = m3u8Url;
+        cachedPlaylistText = playlistContent;
+      }
     }
 
     if (playlistContent && playlistContent.includes('#EXT-X-STREAM-INF')) {
-      const tiers = parseMasterPlaylist(playlistContent, m3u8Url);
-      const chosenTier = tiers.find(t => t.quality === chosenQuality) || tiers[0];
+      let available = [];
+      try {
+        const getQualitiesFn = (typeof getAvailableQualities === 'function')
+          ? getAvailableQualities
+          : ((typeof window !== 'undefined' && typeof window.__focusguard_get_available_qualities__ === 'function')
+              ? window.__focusguard_get_available_qualities__
+              : null);
+        if (getQualitiesFn) {
+          available = getQualitiesFn(null, playlistContent, m3u8Url);
+        }
+      } catch (e) {}
+      const chosenTier = (available && available.length > 0)
+        ? (chosenQuality === 'max' ? available[0] : (available.find(t => t.quality === chosenQuality) || available[0]))
+        : (parseMasterPlaylist(playlistContent, m3u8Url).find(t => t.quality === chosenQuality) || parseMasterPlaylist(playlistContent, m3u8Url)[0]);
       if (chosenTier && chosenTier.url && chosenTier.url !== m3u8Url) {
-        mediaPlaylistUrl = chosenTier.url;
+        try {
+          mediaPlaylistUrl = new URL(chosenTier.url, m3u8Url).href;
+        } catch (e) {
+          mediaPlaylistUrl = chosenTier.url;
+        }
         playlistContent = await fetchResourceSafe(mediaPlaylistUrl, embedUrl, false);
       }
     }
 
-    const lines = playlistContent.split('\n');
-    const segmentUrls = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line && !line.startsWith('#')) {
-        try {
-          segmentUrls.push(new URL(line, mediaPlaylistUrl).href);
-        } catch (e) {
-          segmentUrls.push(line);
-        }
+    if (!playlistContent) {
+      throw new Error('Failed to retrieve HLS playlist content.');
+    }
+
+    // Parse Media Sequence
+    let mediaSeq = 0;
+    const mediaSeqMatch = playlistContent.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/i);
+    if (mediaSeqMatch) {
+      mediaSeq = parseInt(mediaSeqMatch[1], 10) || 0;
+    }
+
+    // Parse fMP4 Init Segment (#EXT-X-MAP:URI="..."[,BYTERANGE="..."])
+    let initSegmentUrl = null;
+    let initByteRange = null;
+    const mapMatch = playlistContent.match(/#EXT-X-MAP:URI="([^"]+)"(?:,BYTERANGE="?([^"\s]+)"?)?/i);
+    if (mapMatch) {
+      try {
+        initSegmentUrl = new URL(mapMatch[1], mediaPlaylistUrl).href;
+      } catch (e) {
+        initSegmentUrl = mapMatch[1];
+      }
+      if (mapMatch[2]) {
+        initByteRange = parseHlsByteRange(mapMatch[2]);
       }
     }
 
-    if (segmentUrls.length === 0) {
+    const lines = playlistContent.split('\n');
+    const segments = [];
+    let currentKeyInfo = null;
+    let segIdxCounter = 0;
+    let currentByteRange = null;
+    let prevByteRangeEnd = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      if (line.startsWith('#EXT-X-KEY:')) {
+        const methodMatch = line.match(/METHOD=([A-Z0-9-]+)/i);
+        const method = methodMatch ? methodMatch[1].toUpperCase() : 'NONE';
+        if (method === 'AES-128') {
+          const uriMatch = line.match(/URI="([^"]+)"/i);
+          const ivMatch = line.match(/IV=(0x[0-9a-fA-F]+)/i);
+          const keyUri = uriMatch ? uriMatch[1] : null;
+          let resolvedKeyUrl = null;
+          if (keyUri) {
+            try {
+              resolvedKeyUrl = new URL(keyUri, mediaPlaylistUrl).href;
+            } catch (e) {
+              resolvedKeyUrl = keyUri;
+            }
+          }
+          currentKeyInfo = {
+            method: 'AES-128',
+            keyUrl: resolvedKeyUrl,
+            ivHex: ivMatch ? ivMatch[1] : null
+          };
+        } else {
+          currentKeyInfo = null;
+        }
+      } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+        const brMatch = line.match(/#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?/i);
+        if (brMatch) {
+          const len = parseInt(brMatch[1], 10);
+          const offset = brMatch[2] !== undefined ? parseInt(brMatch[2], 10) : prevByteRangeEnd;
+          currentByteRange = `${offset}-${offset + len - 1}`;
+          prevByteRangeEnd = offset + len;
+        }
+      } else if (!line.startsWith('#')) {
+        let segUrl;
+        try {
+          segUrl = new URL(line, mediaPlaylistUrl).href;
+        } catch (e) {
+          segUrl = line;
+        }
+        segments.push({
+          url: segUrl,
+          keyInfo: currentKeyInfo ? { ...currentKeyInfo } : null,
+          seq: mediaSeq + segIdxCounter,
+          byteRange: currentByteRange
+        });
+        currentByteRange = null;
+        segIdxCounter++;
+      }
+    }
+
+    if (segments.length === 0) {
       throw new Error('No segments found in playlist.');
     }
 
-    const total = segmentUrls.length;
+    // Fetch Init Segment if fMP4 stream
+    let initSegmentBuffer = null;
+    if (initSegmentUrl) {
+      try {
+        initSegmentBuffer = await fetchResourceSafe(initSegmentUrl, embedUrl, true, initByteRange);
+      } catch (err) {
+        console.warn('[FocusGuard] Failed fetching init segment:', err);
+      }
+    }
+    // Fallback to MSE init segment if present in main world
+    if ((!initSegmentBuffer || initSegmentBuffer.byteLength === 0) && typeof window !== 'undefined' && window.__focusguard_mse_init_segment__) {
+      initSegmentBuffer = window.__focusguard_mse_init_segment__;
+    }
+
+    const total = segments.length;
     let completed = 0;
     const buffers = new Array(total);
     const concurrency = 4;
     let nextIdx = 0;
+    const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
 
     async function worker() {
       while (nextIdx < total) {
         const idx = nextIdx++;
-        const segUrl = segmentUrls[idx];
+        const seg = segments[idx];
         let buffer = null;
         let attempts = 0;
         let lastErr = null;
 
         while (attempts < 3) {
           try {
-            buffer = await fetchResourceSafe(segUrl, embedUrl, true);
+            buffer = await fetchResourceSafe(seg.url, embedUrl, true, seg.byteRange);
             if (buffer && buffer.byteLength > 0) break;
           } catch (err) {
             attempts++;
@@ -1147,7 +1958,15 @@
           if (lastErr) {
             console.warn(`[FocusGuard] Segment ${idx + 1}/${total} warning:`, lastErr.message);
           }
-          buffer = new ArrayBuffer(0); // Gracefully keep stream intact
+          buffer = new ArrayBuffer(0);
+        } else if (seg.keyInfo && seg.keyInfo.method === 'AES-128' && seg.keyInfo.keyUrl && subtle) {
+          try {
+            const cryptoKey = await getCryptoKey(seg.keyInfo.keyUrl, embedUrl);
+            const ivBytes = seg.keyInfo.ivHex ? hexToUint8Array(seg.keyInfo.ivHex) : makeSequenceIv(seg.seq);
+            buffer = await decryptSegmentData(buffer, cryptoKey, ivBytes);
+          } catch (decErr) {
+            console.warn(`[FocusGuard] Decryption failed for segment ${idx + 1}:`, decErr);
+          }
         }
 
         buffers[idx] = buffer;
@@ -1165,7 +1984,10 @@
     }
     await Promise.all(workers);
 
-    const blob = new Blob(buffers, { type: 'video/mp2t' });
+    const validBuffers = buffers.filter(b => b && b.byteLength > 0);
+    const allBuffers = initSegmentBuffer ? [initSegmentBuffer, ...validBuffers] : validBuffers;
+    const isFmp4 = Boolean(initSegmentBuffer) || playlistContent.includes('.m4s') || /mp4/i.test(playlistContent);
+    const blob = new Blob(allBuffers, { type: 'video/mp4' });
     try {
       blob.objectUrl = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : '';
     } catch (e) {}
@@ -1202,8 +2024,8 @@
     });
   }
 
-  // Main download trigger: orchestrates metadata, stream detection, quality selection, and download
-  async function downloadActiveVideo(qualityOrMeta = null, maybeMeta = null) {
+  // Universal download trigger: detects streams from any website player, extracts metadata, selects quality, and downloads
+  async function downloadActiveVideo(qualityOrMeta = null, maybeMeta = null, clickedVideo = null) {
     if (isDownloading) {
       showHud('⏳', 'Download already in progress...', { duration: 1500 });
       return;
@@ -1217,81 +2039,121 @@
     }
 
     let chosenQuality = '1080p';
+    let isMaxRequested = false;
     let customMeta = null;
 
     if (typeof qualityOrMeta === 'string') {
-      chosenQuality = qualityOrMeta;
+      if (qualityOrMeta.toLowerCase() === 'max') {
+        isMaxRequested = true;
+      } else {
+        chosenQuality = qualityOrMeta;
+      }
       customMeta = maybeMeta;
     } else if (qualityOrMeta && typeof qualityOrMeta === 'object') {
-      if (qualityOrMeta.quality) chosenQuality = qualityOrMeta.quality;
+      if (qualityOrMeta.quality) {
+        if (String(qualityOrMeta.quality).toLowerCase() === 'max') {
+          isMaxRequested = true;
+        } else {
+          chosenQuality = qualityOrMeta.quality;
+        }
+      }
       customMeta = qualityOrMeta;
     }
 
-    if (!['1080p', '720p', '480p'].includes(chosenQuality)) {
+    // Determine target video element
+    let video = clickedVideo;
+    if (!video) {
+      findVideos();
+      video = activeVideo || (typeof document !== 'undefined' ? document.querySelector('video') : null);
+    }
+    if (!video && typeof document !== 'undefined') {
+      const allVids = getAllVideos(document);
+      if (allVids.length > 0) video = allVids[0];
+    }
+
+    if (isMaxRequested) {
+      const streamHint = (typeof resolveActiveStreamUrl === 'function')
+        ? resolveActiveStreamUrl(video)
+        : ((typeof window !== 'undefined' && typeof window.__focusguard_resolve_active_stream__ === 'function')
+            ? window.__focusguard_resolve_active_stream__(video)
+            : null);
+      let avail = [];
+      try {
+        const getQualitiesFn = (typeof getAvailableQualities === 'function')
+          ? getAvailableQualities
+          : ((typeof window !== 'undefined' && typeof window.__focusguard_get_available_qualities__ === 'function')
+              ? window.__focusguard_get_available_qualities__
+              : null);
+        if (getQualitiesFn) {
+          avail = getQualitiesFn(video, cachedPlaylistText, streamHint);
+        }
+      } catch (e) {}
+      if (avail && avail.length > 0) {
+        chosenQuality = avail[0].quality;
+      } else if (video && video.videoHeight) {
+        if (video.videoHeight >= 1000) chosenQuality = '1080p';
+        else if (video.videoHeight >= 650) chosenQuality = '720p';
+        else if (video.videoHeight >= 400) chosenQuality = '480p';
+        else chosenQuality = '360p';
+      } else {
+        chosenQuality = '1080p';
+      }
+    } else if (!['4K', '1440p', '1080p', '720p', '480p', '360p', '240p'].includes(chosenQuality)) {
       chosenQuality = '1080p';
     }
 
-    const meta = customMeta || getEpisodeMetadata(null, chosenQuality);
+    const meta = customMeta || getEpisodeMetadata(null, chosenQuality, video);
+    let saveFilename = meta.filename || 'video.mp4';
+    saveFilename = saveFilename.replace(/\.(m4s|ts|m3u8|mpd)$/i, '');
+    if (!saveFilename.toLowerCase().endsWith('.mp4')) {
+      saveFilename += '.mp4';
+    }
+    meta.filename = saveFilename;
+
+    const displayTitle = meta.isEpisode ? `Episode ${meta.episodeNum}` : (meta.title || meta.animeTitle || 'Video');
     showHud('⬇️', `Preparing ${meta.filename}...`, { isDownload: true, duration: 2200 });
 
-    const btn = document.querySelector('.fg-player-download-btn');
+    const btn = (video && video.__fg_download_btn__) || document.querySelector('.fg-player-download-btn');
     if (btn) btn.classList.add('fg-downloading');
 
     isDownloading = true;
 
     try {
-      findVideos();
-      const video = activeVideo || (typeof document !== 'undefined' ? document.querySelector('video') : null);
-      let targetUrl = null;
+      let targetUrl = resolveActiveStreamUrl(video);
 
-      // 1. Inspect JWPlayer JS API for genuine stream file URL
-      if (typeof window.jwplayer === 'function') {
+      // If stream not immediately known, request Main World on-demand scan and wait briefly
+      if (!targetUrl && typeof window !== 'undefined') {
         try {
-          const jw = window.jwplayer();
-          if (jw) {
-            const item = (typeof jw.getPlaylistItem === 'function') ? jw.getPlaylistItem() : null;
-            if (item && item.file && typeof item.file === 'string' && !item.file.startsWith('blob:')) {
-              targetUrl = item.file;
-            } else if (typeof jw.getPlaylist === 'function') {
-              const list = jw.getPlaylist() || [];
-              if (list[0] && list[0].file && typeof list[0].file === 'string' && !list[0].file.startsWith('blob:')) {
-                targetUrl = list[0].file;
+          window.dispatchEvent(new CustomEvent('__focusguard_request_stream_scan__'));
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 250));
+        targetUrl = resolveActiveStreamUrl(video);
+      }
+
+      // Check if chosen quality has a specific direct URL (e.g. 720p MP4 or specific variant playlist)
+      if (targetUrl) {
+        try {
+          const getQualitiesFn = (typeof getAvailableQualities === 'function') ? getAvailableQualities : null;
+          if (getQualitiesFn) {
+            const avail = getQualitiesFn(video, cachedPlaylistText, targetUrl);
+            if (avail && avail.length > 0) {
+              const matchedTier = (chosenQuality === 'max' ? avail[0] : (avail.find(t => t.quality === chosenQuality) || avail[0]));
+              if (matchedTier && matchedTier.url && matchedTier.url !== targetUrl) {
+                targetUrl = matchedTier.url;
               }
             }
           }
         } catch (e) {}
       }
 
-      // 2. Prioritize sniffed stream URL (from inject.js or window active stream)
-      if (!targetUrl || targetUrl.startsWith('blob:')) {
-        if (detectedStreamUrl && !detectedStreamUrl.startsWith('blob:')) {
-          targetUrl = detectedStreamUrl;
-        } else if (window.__focusguard_active_stream__ && !window.__focusguard_active_stream__.startsWith('blob:')) {
-          targetUrl = window.__focusguard_active_stream__;
-        } else if (video && video.__hls__ && video.__hls__.url && !video.__hls__.url.startsWith('blob:')) {
-          targetUrl = video.__hls__.url;
-        } else if (typeof window.hls !== 'undefined' && window.hls && window.hls.url && !window.hls.url.startsWith('blob:')) {
-          targetUrl = window.hls.url;
-        }
-      }
-
-      // 3. Only use video.currentSrc / video.src if it is a real HTTP/HTTPS file URL (NEVER blob:)
-      if (!targetUrl || targetUrl.startsWith('blob:')) {
-        if (video) {
-          const rawSrc = video.currentSrc || video.src || '';
-          if (rawSrc && !rawSrc.startsWith('blob:')) {
-            targetUrl = rawSrc;
-          }
-        }
-      }
-
+      // Determine effective embed URL for CDN referer bypass
       let effectiveEmbedUrl = detectedEmbedUrl;
       if (!effectiveEmbedUrl) {
         if (typeof window !== 'undefined' && window !== window.top) {
           effectiveEmbedUrl = window.location.href;
         } else if (typeof document !== 'undefined') {
           const ifr = document.querySelector(
-            '#iframe-embed, iframe#iframe-embed, iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="embed"], iframe[src*="vidsrc"], iframe[src*="rabbitstream"], iframe[src*="stream"], iframe[src*="megaplay"], .film-player iframe'
+            '#iframe-embed, iframe#iframe-embed, iframe[src*="megacloud"], iframe[src*="rapid-cloud"], iframe[src*="embed"], iframe[src*="vidsrc"], iframe[src*="rabbitstream"], iframe[src*="stream"], iframe[src*="player"], iframe[src*="video"], .film-player iframe'
           );
           if (ifr) {
             effectiveEmbedUrl = ifr.src || ifr.getAttribute('data-src') || ifr.getAttribute('data-url');
@@ -1302,25 +2164,24 @@
         effectiveEmbedUrl = window.location.href;
       }
 
-      // 1. Synthesized / MediaStream player (test_page.html canvas stream or active video with blob URL)
-      if (!targetUrl && video && (video.srcObject || video.captureStream || video.mozCaptureStream || (video.src && video.src.startsWith('blob:')))) {
-        const stream = video.srcObject || (video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null));
-        if (stream) {
-          showHud('⬇️', `Capturing Episode ${meta.episodeNum} [${chosenQuality}]...`, { isDownload: true, duration: 2500 });
-          const blobUrl = await downloadFromMediaStream(stream, meta.filename, 4000);
-          triggerFileSave(blobUrl, meta.filename);
-          showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
+      // STREAM TYPE DISPATCH:
+      // 1. If running on top window and stream URL is not detected yet, delegate to embedded player iframes
+      if (!targetUrl && typeof window !== 'undefined' && window === window.top) {
+        const hasIframes = document.querySelector('iframe');
+        if (hasIframes) {
+          showHud('⬇️', `Contacting player for ${displayTitle}...`, { isDownload: true, duration: 2500 });
+          broadcastCommand('download_video', meta);
           return;
         }
       }
 
-      // 2. HLS stream (.m3u8)
-      if (targetUrl && targetUrl.includes('.m3u8')) {
-        showHud('⬇️', `Fetching Ep. ${meta.episodeNum} [${chosenQuality}] playlist...`, { isDownload: true, duration: 2000 });
+      // 2. HLS stream (.m3u8 or contains /hls/ or manifest)
+      if (targetUrl && (targetUrl.includes('.m3u8') || targetUrl.includes('/hls/') || /chunklist|manifest/i.test(targetUrl))) {
+        showHud('⬇️', `Fetching ${displayTitle} [${chosenQuality}] playlist...`, { isDownload: true, duration: 2000 });
         try {
           const blobResult = await downloadHlsStream(targetUrl, meta.filename, (pct, completed, total) => {
             const extraStr = total ? `(${completed}/${total})` : '';
-            showHud('⬇️', `Downloading Ep. ${meta.episodeNum} [${chosenQuality}]: ${pct}%`, {
+            showHud('⬇️', `Downloading ${displayTitle} [${chosenQuality}]: ${pct}%`, {
               progress: pct,
               isDownload: true,
               extra: extraStr,
@@ -1340,58 +2201,59 @@
               } catch (e) {}
             }
           }, chosenQuality, effectiveEmbedUrl);
+
           triggerFileSave(blobResult, meta.filename);
           if (typeof window !== 'undefined' && window === window.top) {
             showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
           }
           return;
         } catch (hlsErr) {
-          console.warn('[FocusGuard] HLS download error, trying player stream capture fallback:', hlsErr);
-          if (video && (video.captureStream || video.mozCaptureStream)) {
-            showHud('⬇️', `Capturing Episode ${meta.episodeNum}...`, { isDownload: true, duration: 2500 });
-            const stream = (video.captureStream ? video.captureStream() : video.mozCaptureStream());
-            const blobUrl = await downloadFromMediaStream(stream, meta.filename, 4000);
-            triggerFileSave(blobUrl, meta.filename);
-            showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
-            return;
-          }
+          console.warn('[FocusGuard] HLS download error:', hlsErr);
           if (typeof window !== 'undefined' && window === window.top) {
             broadcastCommand('download_video', meta);
-            showHud('⬇️', `Requested stream capture for Episode ${meta.episodeNum}...`, { isDownload: true, duration: 2500 });
+            showHud('⬇️', `Delegating download for ${displayTitle}...`, { isDownload: true, duration: 2500 });
             return;
           }
           throw hlsErr;
         }
       }
 
-      // 3. Direct video file (MP4, WebM, direct HTTP/HTTPS URL — NEVER blob:)
+      // 3. Direct video file (MP4, WebM, direct HTTP/HTTPS URL — NEVER isolated .m4s/.ts chunks or blob:)
       if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) && !targetUrl.includes('.m3u8')) {
         triggerFileSave(targetUrl, meta.filename);
         showHud('✅', `Downloading: ${meta.filename}`, { isSuccess: true, duration: 3000 });
         return;
       }
 
-      // 4. Capture directly from video element if available (e.g. MediaSource blob:https://megaplay.buzz/...)
-      if (video && (video.captureStream || video.mozCaptureStream)) {
-        const stream = video.captureStream ? video.captureStream() : video.mozCaptureStream();
-        if (stream) {
-          showHud('⬇️', `Capturing Episode ${meta.episodeNum} [${chosenQuality}]...`, { isDownload: true, duration: 2500 });
-          const blobUrl = await downloadFromMediaStream(stream, meta.filename, 4000);
-          triggerFileSave(blobUrl, meta.filename);
-          showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
+      // 4. Synthesized / Live MediaStream only (WebRTC or synthetic canvas stream with srcObject)
+      // IMPORTANT: NEVER call video.captureStream() on regular video players, as it stalls/kills the hardware decoder and produces 4s chunks.
+      if (video && video.srcObject && (typeof video.srcObject.getTracks === 'function' || video.srcObject.id)) {
+        const stream = video.srcObject;
+        showHud('⬇️', `Capturing live stream for ${displayTitle} [${chosenQuality}]...`, { isDownload: true, duration: 2500 });
+        const blobUrl = await downloadFromMediaStream(stream, meta.filename, 4000);
+        triggerFileSave(blobUrl, meta.filename);
+        showHud('✅', `Downloaded: ${meta.filename}`, { isSuccess: true, duration: 3500 });
+        return;
+      }
+
+      // 5. Cross-frame delegation fallback: ask iframes or parent window
+      if (typeof window !== 'undefined') {
+        if (window === window.top) {
+          const hasIframes = document.querySelector('iframe');
+          if (hasIframes) {
+            broadcastCommand('download_video', meta);
+            showHud('⬇️', `Requested stream for ${displayTitle}...`, { isDownload: true, duration: 2500 });
+            return;
+          }
+        } else {
+          window.top.postMessage({ type: 'FOCUSGUARD_PLAYER_CMD', cmd: 'download_video', value: meta }, '*');
+          showHud('⬇️', `Delegating download for ${displayTitle}...`, { isDownload: true, duration: 2500 });
           return;
         }
       }
 
-      // 5. Cross-frame delegation: ask iframes or parent window
-      if (typeof window !== 'undefined') {
-        if (window === window.top) {
-          broadcastCommand('download_video', meta);
-          showHud('⬇️', `Requested stream for Episode ${meta.episodeNum}...`, { isDownload: true, duration: 2500 });
-        } else {
-          window.top.postMessage({ type: 'FOCUSGUARD_PLAYER_CMD', cmd: 'download_video', value: meta }, '*');
-        }
-      }
+      showHud('⚠️', 'Please start video playback first to detect stream', { duration: 3500 });
+      return;
 
     } catch (err) {
       console.error('[FocusGuard] Video download failed:', err);
@@ -2767,10 +3629,16 @@
     }
 
     // Stream detected in child frame
-    if (data.type === 'FOCUSGUARD_STREAM_DETECTED' && data.streamUrl && !data.streamUrl.startsWith('blob:')) {
+    if (data.type === 'FOCUSGUARD_STREAM_DETECTED' && data.streamUrl && !isSegmentChunkUrl(data.streamUrl)) {
       detectedStreamUrl = data.streamUrl;
       if (data.embedUrl) detectedEmbedUrl = data.embedUrl;
       if (data.playlistText) cachedPlaylistText = data.playlistText;
+
+      if (!cachedPlaylistText && (detectedStreamUrl.includes('.m3u8') || detectedStreamUrl.includes('/hls/') || /manifest|playlist/i.test(detectedStreamUrl))) {
+        fetchResourceSafe(detectedStreamUrl, detectedEmbedUrl, false).then(text => {
+          if (text && text.includes('#EXTM3U')) cachedPlaylistText = text;
+        }).catch(() => {});
+      }
     }
 
     // Save blob delegated from child iframe to top-level window
@@ -3138,8 +4006,11 @@
     window.__focusguard_download_video__ = downloadActiveVideo;
     window.__focusguard_mount_download_btn__ = mountDownloadButton;
     window.__focusguard_parse_playlist__ = parseMasterPlaylist;
+    window.__focusguard_get_available_qualities__ = getAvailableQualities;
+    window.__focusguard_parse_byterange__ = parseHlsByteRange;
     window.__focusguard_format_size__ = formatDataSize;
     window.__focusguard_toggle_quality_popover__ = toggleQualityPopover;
+    window.__focusguard_resolve_active_stream__ = resolveActiveStreamUrl;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -3150,8 +4021,11 @@
       downloadActiveVideo,
       formatTime,
       parseMasterPlaylist,
+      getAvailableQualities,
+      parseHlsByteRange,
       formatDataSize,
-      toggleQualityPopover
+      toggleQualityPopover,
+      resolveActiveStreamUrl
     };
   }
 })();

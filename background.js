@@ -204,11 +204,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Pre-arm stream CDN Referer / Origin bypass headers
+  if (message.action === 'arm_stream_bypass') {
+    const targetUrl = message.url || '';
+    const embedUrl = message.embedUrl || '';
+    (async () => {
+      try {
+        await setStreamBypassHeaders(embedUrl, targetUrl);
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   // Stream Resource Proxy: Bypasses CDN Referer / Origin 403 checks
   if (message.action === 'fetch_stream_data') {
     const targetUrl = message.url;
     const embedUrl = message.embedUrl || '';
     const asBinary = !!message.asBinary;
+    const byteRange = message.byteRange || null;
 
     if (!targetUrl) {
       sendResponse({ success: false, error: 'No stream target URL specified.' });
@@ -223,9 +239,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ruleSet = true;
         }
 
-        const res = await fetch(targetUrl, { method: 'GET', cache: 'no-cache' });
+        const fetchOptions = { method: 'GET', cache: 'no-cache' };
+        if (byteRange) {
+          fetchOptions.headers = { 'Range': `bytes=${byteRange}` };
+        }
+
+        const res = await fetch(targetUrl, fetchOptions);
         if (!res.ok) {
-          sendResponse({ success: false, status: res.status, error: `Playlist HTTP ${res.status}` });
+          sendResponse({ success: false, status: res.status, error: `Stream HTTP ${res.status}` });
           return;
         }
 
@@ -253,9 +274,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Stream Bypass Engine (Eliminates HTTP 403 Forbidden on CDNs like MegaCloud/RapidCloud/Quavex)
 const STREAM_BYPASS_RULE_ID = 9001;
-const STREAM_BYPASS_MAX_RULES = 15;
+const STREAM_BYPASS_MAX_RULES = 25;
 let activeStreamBypassCount = 0;
 let streamBypassClearTimer = null;
+let currentBypassKey = '';
 
 // Clean up any lingering stream bypass DNR rules on startup so they never interfere with regular playback
 if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.declarativeNetRequest.updateDynamicRules) {
@@ -284,6 +306,7 @@ async function setStreamBypassHeaders(embedUrl, targetUrl) {
     const targetUrlStr = (targetUrl || '').toLowerCase();
     const embedUrlStr = (embedUrl || '').toLowerCase();
 
+    // Known streaming CDN overrides
     if (targetUrlStr.includes('quavex') || targetUrlStr.includes('nexabloom') || targetUrlStr.includes('megaplay') || embedUrlStr.includes('megaplay') || embedUrlStr.includes('1anime')) {
       cleanOrigin = 'https://megaplay.buzz';
       cleanReferer = 'https://megaplay.buzz/';
@@ -301,13 +324,21 @@ async function setStreamBypassHeaders(embedUrl, targetUrl) {
       } catch (e) {}
     }
 
+    if (!cleanOrigin && targetUrl) {
+      try {
+        const u = new URL(targetUrl);
+        cleanOrigin = u.origin;
+        cleanReferer = u.origin + '/';
+      } catch (e) {}
+    }
+
     if (!cleanOrigin) {
       cleanOrigin = 'https://megaplay.buzz';
       cleanReferer = 'https://megaplay.buzz/';
     }
 
-    // List of streaming domains to bypass
-    const domainsToBypass = ['quavex.top', 'nexabloom.top', 'megaplay.buzz', '1anime.site', 'megacloud.tv', 'rapid-cloud.co'];
+    // Dynamic list of streaming domains to bypass: target host first, then embed host, then defaults
+    const domainsToBypass = [];
     if (targetUrl) {
       try {
         const tHost = new URL(targetUrl).hostname;
@@ -316,6 +347,24 @@ async function setStreamBypassHeaders(embedUrl, targetUrl) {
         }
       } catch (e) {}
     }
+    if (embedUrl) {
+      try {
+        const eHost = new URL(embedUrl).hostname;
+        if (eHost && !domainsToBypass.includes(eHost)) {
+          domainsToBypass.push(eHost);
+        }
+      } catch (e) {}
+    }
+    const defaultDomains = ['quavex.top', 'nexabloom.top', 'megaplay.buzz', '1anime.site', 'megacloud.tv', 'rapid-cloud.co'];
+    for (const d of defaultDomains) {
+      if (!domainsToBypass.includes(d)) domainsToBypass.push(d);
+    }
+
+    const bypassKey = `${cleanReferer}::${domainsToBypass.sort().join(',')}`;
+    if (currentBypassKey === bypassKey) {
+      return; // Already configured, avoid expensive DNR churn
+    }
+    currentBypassKey = bypassKey;
 
     const rules = domainsToBypass.slice(0, STREAM_BYPASS_MAX_RULES).map((domain, index) => ({
       id: STREAM_BYPASS_RULE_ID + index,
@@ -360,17 +409,20 @@ async function clearStreamBypassHeaders() {
       await chrome.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: ruleIdsToRemove
       });
+      currentBypassKey = '';
     } catch (e) {}
     streamBypassClearTimer = null;
-  }, 3000);
+  }, 25000);
 }
 
 function arrayBufferToBase64(buffer) {
-  let binary = '';
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const len = bytes.length;
+  let binary = '';
+  const chunkSize = 32768;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk);
   }
   return btoa(binary);
 }
