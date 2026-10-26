@@ -1599,6 +1599,309 @@
         mountDownloadButton(playerWrapper);
       }
     });
+
+    // 3. Mount batch/season download button near episode drawer
+    if (typeof window !== 'undefined' && window === window.top) {
+      mountBatchDownloadButton(document);
+    }
+  }
+
+  // 3.6 Batch & Whole-Season Downloader Engine
+  function scrapeEpisodeDrawer(targetDoc) {
+    const doc = targetDoc || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return [];
+
+    const episodeMap = new Map();
+
+    const candidateSelectors = [
+      '.ssl-item.ep-item',
+      '.ep-item',
+      '.episode-item',
+      '.ss-list a.ssl-item',
+      '.ss-list a',
+      '.episodes-ul li a',
+      '.episodes-list a',
+      'a[data-number]',
+      'li[data-number] a',
+      'button[data-number]',
+      'a[href*="/watch/"][href*="ep="]'
+    ];
+
+    for (const selector of candidateSelectors) {
+      try {
+        const elements = doc.querySelectorAll(selector);
+        if (elements && elements.length > 0) {
+          for (const el of elements) {
+            const rawNum = el.getAttribute('data-number') || 
+                           el.getAttribute('data-episode') || 
+                           el.getAttribute('data-num');
+            let epNum = null;
+            if (rawNum && /^\d+$/.test(rawNum.trim())) {
+              epNum = rawNum.trim();
+            } else {
+              const text = (el.textContent || '').trim();
+              const mText = text.match(/(?:Episode|Ep\.?|EP)?\s*(\d+)/i);
+              if (mText) epNum = mText[1];
+            }
+
+            const href = el.getAttribute('href') || '';
+            if (!epNum && href) {
+              const mHref = href.match(/[?&]ep=(\d+)/i);
+              if (mHref) epNum = mHref[1];
+            }
+
+            if (epNum) {
+              const numKey = parseInt(epNum, 10);
+              if (!episodeMap.has(numKey)) {
+                const titleAttr = el.getAttribute('title') || el.getAttribute('data-title') || '';
+                const text = (el.textContent || '').trim();
+                const epTitle = titleAttr || (text.length > 3 ? text : `Episode ${epNum}`);
+                const isActive = (el.classList && (el.classList.contains('active') || el.classList.contains('ssl-active'))) || false;
+
+                episodeMap.set(numKey, {
+                  episodeNum: String(numKey),
+                  title: epTitle,
+                  href: href,
+                  active: isActive
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const results = Array.from(episodeMap.values());
+    results.sort((a, b) => parseInt(a.episodeNum, 10) - parseInt(b.episodeNum, 10));
+    return results;
+  }
+
+  function filterEpisodeRange(episodesList, startEp = null, endEp = null) {
+    if (!Array.isArray(episodesList) || episodesList.length === 0) return [];
+
+    const start = (startEp !== null && startEp !== undefined && !isNaN(Number(startEp)))
+      ? parseInt(startEp, 10)
+      : null;
+    const end = (endEp !== null && endEp !== undefined && !isNaN(Number(endEp)))
+      ? parseInt(endEp, 10)
+      : null;
+
+    return episodesList.filter(ep => {
+      const num = parseInt(ep.episodeNum, 10);
+      if (isNaN(num)) return true;
+      if (start !== null && num < start) return false;
+      if (end !== null && num > end) return false;
+      return true;
+    });
+  }
+
+  function queueBatchEpisodes(episodes, quality = '1080p') {
+    if (!Array.isArray(episodes) || episodes.length === 0) {
+      return { success: false, error: 'No episodes to queue' };
+    }
+
+    const meta = getEpisodeMetadata(document, quality);
+    const animeTitle = meta.animeTitle || meta.title || 'Anime';
+    const streamUrl = (typeof resolveActiveStreamUrl === 'function') ? resolveActiveStreamUrl(activeVideo) : '';
+    const currentEmbed = (typeof window !== 'undefined' && window.location) ? window.location.href : '';
+
+    const batchJobs = episodes.map(ep => {
+      const epNumPadded = String(ep.episodeNum).padStart(2, '0');
+      const qSuffix = quality ? ` [${quality}]` : '';
+      const safeTitle = (animeTitle || 'Anime').replace(/[<>:"/\\|?*]/g, '').trim();
+      const filename = `${safeTitle} - Episode ${epNumPadded}${qSuffix}.mp4`;
+
+      return {
+        episodeNum: ep.episodeNum,
+        title: ep.title || `Episode ${ep.episodeNum}`,
+        animeTitle: animeTitle,
+        filename: filename,
+        quality: quality,
+        url: ep.url || streamUrl || '',
+        embedUrl: ep.embedUrl || currentEmbed || '',
+        href: ep.href || '',
+        status: 'queued',
+        type: 'hls'
+      };
+    });
+
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        action: 'queue_batch_downloads',
+        items: batchJobs
+      }, (resp) => {
+        if (resp && resp.success) {
+          console.log('[FocusGuard] Batch queue response:', resp);
+        }
+      });
+    }
+
+    if (typeof showHud === 'function') {
+      showHud('⚡', `Batch Queued: ${batchJobs.length} episodes (${quality})`, { isSuccess: true, duration: 4000 });
+    }
+
+    return { success: true, count: batchJobs.length, jobs: batchJobs };
+  }
+
+  function mountBatchDownloadButton(targetDoc) {
+    const doc = targetDoc || (typeof document !== 'undefined' ? document : null);
+    if (!doc || typeof doc.querySelector !== 'function') return null;
+    const existing = (typeof doc.getElementById === 'function')
+      ? doc.getElementById('focusguard-batch-btn')
+      : doc.querySelector('#focusguard-batch-btn');
+    if (existing) return existing;
+
+    // Find suitable header in episode drawer or beside player
+    const drawerHeader = doc.querySelector(
+      '.block_area-header .head-title, .ss-list-min, #episodes-title, .seasons-block, .anis-watch-detail, #focusguard-download-btn-host'
+    );
+    if (!drawerHeader) return null;
+
+    if (typeof doc.createElement !== 'function') return null;
+    const batchBtn = doc.createElement('button');
+    batchBtn.type = 'button';
+    batchBtn.id = 'focusguard-batch-btn';
+    batchBtn.className = 'fg-batch-btn';
+    batchBtn.innerHTML = '⚡ Batch / Season';
+    batchBtn.title = 'Open Batch & Whole-Season Download Dialog';
+
+    batchBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openBatchModal(doc);
+    });
+
+    if (drawerHeader.id === 'focusguard-download-btn-host') {
+      drawerHeader.appendChild(batchBtn);
+    } else if (drawerHeader.parentElement) {
+      drawerHeader.parentElement.appendChild(batchBtn);
+    } else {
+      drawerHeader.appendChild(batchBtn);
+    }
+
+    return batchBtn;
+  }
+
+  function openBatchModal(targetDoc) {
+    const doc = targetDoc || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !doc.body || typeof doc.createElement !== 'function') return null;
+
+    const existingBackdrop = (typeof doc.getElementById === 'function')
+      ? doc.getElementById('focusguard-batch-modal-backdrop')
+      : (typeof doc.querySelector === 'function' ? doc.querySelector('#focusguard-batch-modal-backdrop') : null);
+    if (existingBackdrop) {
+      existingBackdrop.remove();
+    }
+
+    const episodes = scrapeEpisodeDrawer(doc);
+    const meta = getEpisodeMetadata(doc);
+    const animeTitle = meta.animeTitle || meta.title || 'Anime Series';
+    const totalEps = episodes.length > 0 ? episodes.length : 12;
+    const minEp = episodes.length > 0 ? parseInt(episodes[0].episodeNum, 10) : 1;
+    const maxEp = episodes.length > 0 ? parseInt(episodes[episodes.length - 1].episodeNum, 10) : totalEps;
+
+    const modalBackdrop = doc.createElement('div');
+    modalBackdrop.id = 'focusguard-batch-modal-backdrop';
+    modalBackdrop.className = 'fg-batch-backdrop';
+
+    modalBackdrop.innerHTML = `
+      <div class="fg-batch-dialog" role="dialog" aria-modal="true" aria-labelledby="fg-batch-title">
+        <div class="fg-batch-modal-header">
+          <div class="fg-batch-modal-title" id="fg-batch-title">
+            <span>⚡</span> Batch / Season Downloader
+          </div>
+          <button type="button" class="fg-batch-modal-close" id="fg-batch-close-btn" aria-label="Close dialog">×</button>
+        </div>
+        <div class="fg-batch-anime-title">${animeTitle}</div>
+        <div class="fg-batch-ep-count">${totalEps} Episodes Detected</div>
+
+        <div class="fg-batch-section-label">Select Episode Range</div>
+        <div class="fg-batch-range-group">
+          <label class="fg-batch-range-opt">
+            <input type="radio" name="fg-range-type" value="all" checked id="fg-range-all">
+            <span>Download All Episodes (${minEp} – ${maxEp})</span>
+          </label>
+          <label class="fg-batch-range-opt">
+            <input type="radio" name="fg-range-type" value="custom" id="fg-range-custom">
+            <span>Custom Episode Range</span>
+          </label>
+          <div class="fg-batch-range-inputs" id="fg-range-inputs">
+            <span>From</span>
+            <input type="number" class="fg-batch-num-input" id="fg-ep-start" value="${minEp}" min="${minEp}" max="${maxEp}">
+            <span>To</span>
+            <input type="number" class="fg-batch-num-input" id="fg-ep-end" value="${maxEp}" min="${minEp}" max="${maxEp}">
+          </div>
+        </div>
+
+        <div class="fg-batch-section-label">Video Quality</div>
+        <select class="fg-batch-quality-select" id="fg-batch-quality">
+          <option value="1080p" selected>1080p (Full HD - Recommended)</option>
+          <option value="720p">720p (HD - Balanced)</option>
+          <option value="480p">480p (SD - Data Saver)</option>
+        </select>
+
+        <div class="fg-batch-footer">
+          <button type="button" class="fg-batch-btn-cancel" id="fg-batch-cancel-btn">Cancel</button>
+          <button type="button" class="fg-batch-btn-submit" id="fg-batch-submit-btn">Start Batch Download</button>
+        </div>
+      </div>
+    `;
+
+    doc.body.appendChild(modalBackdrop);
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        modalBackdrop.classList.add('fg-modal-open');
+      });
+    } else {
+      modalBackdrop.classList.add('fg-modal-open');
+    }
+
+    const closeModal = () => {
+      modalBackdrop.classList.remove('fg-modal-open');
+      setTimeout(() => {
+        if (modalBackdrop.parentNode) modalBackdrop.remove();
+      }, 250);
+    };
+
+    const closeBtn = modalBackdrop.querySelector('#fg-batch-close-btn');
+    const cancelBtn = modalBackdrop.querySelector('#fg-batch-cancel-btn');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+
+    modalBackdrop.addEventListener('click', (e) => {
+      if (e.target === modalBackdrop) closeModal();
+    });
+
+    const submitBtn = modalBackdrop.querySelector('#fg-batch-submit-btn');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        const allRadio = modalBackdrop.querySelector('#fg-range-all');
+        const isAll = allRadio ? allRadio.checked : true;
+        const startInput = modalBackdrop.querySelector('#fg-ep-start');
+        const endInput = modalBackdrop.querySelector('#fg-ep-end');
+        const startVal = startInput ? parseInt(startInput.value, 10) : minEp;
+        const endVal = endInput ? parseInt(endInput.value, 10) : maxEp;
+        const qualitySelect = modalBackdrop.querySelector('#fg-batch-quality');
+        const quality = qualitySelect ? qualitySelect.value : '1080p';
+
+        let targetEpisodes = episodes;
+        if (targetEpisodes.length === 0) {
+          const s = isAll ? 1 : (isNaN(startVal) ? 1 : startVal);
+          const e = isAll ? totalEps : (isNaN(endVal) ? totalEps : endVal);
+          targetEpisodes = [];
+          for (let i = s; i <= e; i++) {
+            targetEpisodes.push({ episodeNum: String(i), title: `Episode ${i}` });
+          }
+        } else if (!isAll) {
+          targetEpisodes = filterEpisodeRange(episodes, startVal, endVal);
+        }
+
+        queueBatchEpisodes(targetEpisodes, quality);
+        closeModal();
+      });
+    }
+
+    return modalBackdrop;
   }
 
   // Trigger file download via chrome.downloads or synthetic anchor fallback
@@ -6317,6 +6620,11 @@
     window.__focusguard_patch_moof_trun_offsets__ = patchMoofTrunDataOffsets;
     window.__focusguard_parse_hls_segments__ = parseHlsSegments;
     window.__focusguard_download_hls_stream__ = downloadHlsStream;
+    window.__focusguard_scrape_episode_drawer__ = scrapeEpisodeDrawer;
+    window.__focusguard_filter_episode_range__ = filterEpisodeRange;
+    window.__focusguard_queue_batch_episodes__ = queueBatchEpisodes;
+    window.__focusguard_mount_batch_btn__ = mountBatchDownloadButton;
+    window.__focusguard_open_batch_modal__ = openBatchModal;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -6359,7 +6667,12 @@
       triggerFileSave,
       onEpisodeChangeDetected,
       fetchResourceSafe,
-      playerSettings
+      playerSettings,
+      scrapeEpisodeDrawer,
+      filterEpisodeRange,
+      queueBatchEpisodes,
+      mountBatchDownloadButton,
+      openBatchModal
     };
   }
 })();

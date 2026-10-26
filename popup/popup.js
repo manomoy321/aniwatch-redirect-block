@@ -350,6 +350,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ==========================================================================
   const queueCountBadge = document.getElementById('queue-count-badge');
   const btnClearQueue = document.getElementById('btn-clear-queue');
+  const btnPauseAllQueue = document.getElementById('btn-pause-all-queue');
+  const btnResumeAllQueue = document.getElementById('btn-resume-all-queue');
   const queueEmptyState = document.getElementById('queue-empty-state');
   const queueItemsList = document.getElementById('queue-items-list');
 
@@ -520,6 +522,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnClearQueue) {
     btnClearQueue.addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: 'clear_completed_downloads' }, (res) => {
+        if (res && res.queue) {
+          renderDownloadQueue(res.queue);
+        }
+      });
+    });
+  }
+
+  // Batch pause all downloads
+  if (btnPauseAllQueue) {
+    btnPauseAllQueue.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'pause_all_downloads' }, (res) => {
+        if (res && res.queue) {
+          renderDownloadQueue(res.queue);
+        }
+      });
+    });
+  }
+
+  // Batch resume all downloads
+  if (btnResumeAllQueue) {
+    btnResumeAllQueue.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'resume_all_downloads' }, (res) => {
         if (res && res.queue) {
           renderDownloadQueue(res.queue);
         }

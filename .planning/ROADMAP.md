@@ -23,7 +23,7 @@ FocusGuard began as an ad and redirect blocker for Aniwatch/HiAnime and has evol
 ### Milestone 2: Subtitles & Batch Downloading (Upcoming v1.2.0)
 
 - [ ] **Phase 7: Subtitle Extraction & Companion Export** - Parse `#EXT-X-MEDIA:TYPE=SUBTITLES`, fetch WebVTT/SRT chunks, convert to `.srt`, and export alongside video.
-- [ ] **Phase 8: Batch & Whole-Season Download Engine** - Episode list traversal, bulk queueing, and seasonal folder grouping.
+- [x] **Phase 8: Batch & Whole-Season Download Engine** - Episode drawer scraping, bulk queueing, range filtering, FIFO concurrency, and popup batch controls.
 - [ ] **Phase 9: Enhanced Popup Dashboard & Audio Track Switcher** - Search and filter downloads, manual audio rendition selector, and queue history export.
 
 ## Phase Details

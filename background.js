@@ -465,6 +465,15 @@ function processQueue() {
 async function startJob(job) {
   if (!job || job.status !== 'queued') return;
 
+  if (job.downloadId && typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.resume) {
+    job.status = 'downloading';
+    persistQueue(true);
+    chrome.downloads.resume(job.downloadId, () => {
+      persistQueue(true);
+    });
+    return;
+  }
+
   job.status = 'preparing';
   persistQueue(true);
 
@@ -545,16 +554,9 @@ function resumeJob(jobId) {
   const job = downloadQueue.find(j => j.id === jobId);
   if (!job) return { success: false, error: 'Job not found' };
 
-  if (job.downloadId && typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.resume) {
-    chrome.downloads.resume(job.downloadId, () => {
-      job.status = 'downloading';
-      persistQueue(true);
-    });
-  } else {
-    job.status = 'queued';
-    persistQueue(true);
-    processQueue();
-  }
+  job.status = 'queued';
+  persistQueue(true);
+  processQueue();
   return { success: true };
 }
 
@@ -647,6 +649,71 @@ function clearCompletedJobs() {
   downloadQueue = downloadQueue.filter(j => ['queued', 'preparing', 'downloading', 'paused'].includes(j.status));
   persistQueue(true);
   return { success: true, cleared: countBefore - downloadQueue.length };
+}
+
+// Queue multiple episodes/downloads atomically in FIFO order
+function queueBatchDownloads(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { success: false, error: 'No items provided for batch queue' };
+  }
+  const added = [];
+  const duplicates = [];
+
+  for (const item of items) {
+    if (!item) continue;
+    const res = queueDownload(item);
+    if (res.isDuplicate) {
+      duplicates.push(res.job);
+    } else if (res.job) {
+      added.push(res.job);
+    }
+  }
+
+  return {
+    success: true,
+    count: added.length,
+    duplicatesCount: duplicates.length,
+    totalQueued: downloadQueue.length,
+    jobs: added
+  };
+}
+
+// Pause all active and queued download jobs
+function pauseAllJobs() {
+  let count = 0;
+  for (const job of downloadQueue) {
+    if (['queued', 'preparing', 'downloading'].includes(job.status)) {
+      pauseJob(job.id);
+      count++;
+    }
+  }
+  return { success: true, count };
+}
+
+// Resume all paused download jobs and trigger queue processing
+function resumeAllJobs() {
+  let count = 0;
+  for (const job of downloadQueue) {
+    if (job.status === 'paused') {
+      job.status = 'queued';
+      count++;
+    }
+  }
+  persistQueue(true);
+  processQueue();
+  return { success: true, count };
+}
+
+// Cancel all active, preparing, or queued jobs
+function cancelAllJobs() {
+  let count = 0;
+  for (const job of [...downloadQueue]) {
+    if (!['completed', 'cancelled', 'failed'].includes(job.status)) {
+      cancelJob(job.id);
+      count++;
+    }
+  }
+  return { success: true, count };
 }
 
 // Update job progress reported from runner (e.g. HLS or direct stream chunk)
@@ -786,10 +853,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Download Queue Manager Handlers
   if (message.action === 'queue_download') {
     const item = message.job || message;
     const res = queueDownload(item);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'queue_batch_downloads') {
+    const items = message.items || message.episodes || [];
+    const res = queueBatchDownloads(items);
     sendResponse(res);
     return true;
   }
@@ -805,14 +878,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'pause_all_downloads') {
+    const res = pauseAllJobs();
+    sendResponse(res);
+    return true;
+  }
+
   if (message.action === 'resume_download') {
     const res = resumeJob(message.jobId);
     sendResponse(res);
     return true;
   }
 
+  if (message.action === 'resume_all_downloads') {
+    const res = resumeAllJobs();
+    sendResponse(res);
+    return true;
+  }
+
   if (message.action === 'cancel_download') {
     const res = cancelJob(message.jobId);
+    sendResponse(res);
+    return true;
+  }
+
+  if (message.action === 'cancel_all_downloads') {
+    const res = cancelAllJobs();
     sendResponse(res);
     return true;
   }
@@ -1318,6 +1409,10 @@ if (typeof module !== 'undefined' && module.exports) {
     retryJob,
     removeJob,
     clearCompletedJobs,
+    queueBatchDownloads,
+    pauseAllJobs,
+    resumeAllJobs,
+    cancelAllJobs,
     updateJobProgress,
     getDownloadQueue: () => downloadQueue,
     getQueueSettings: () => queueSettings,

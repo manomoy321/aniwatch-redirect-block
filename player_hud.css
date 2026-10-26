@@ -777,4 +777,245 @@ iframe[src*="stream"],
   }
 }
 
+/* ==========================================================================
+   Batch / Whole-Season Downloader UI Styles
+   Cyber-sleek glassmorphism with emerald and cyan accents
+   ========================================================================== */
+
+.fg-batch-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px 12px !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  border-radius: 6px !important;
+  color: #34d399 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  vertical-align: middle !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  user-select: none !important;
+}
+
+.fg-batch-btn:hover {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: rgba(52, 211, 153, 0.8) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4) !important;
+  transform: translateY(-1px) !important;
+}
+
+.fg-batch-btn:active {
+  transform: translateY(0) scale(0.97) !important;
+}
+
+.fg-batch-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(5, 8, 16, 0.78) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  z-index: 2147483646 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0 !important;
+  transition: opacity 0.2s ease !important;
+  pointer-events: none !important;
+}
+
+.fg-batch-backdrop.fg-modal-open {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.fg-batch-dialog {
+  width: 380px !important;
+  max-width: 90vw !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(16, 185, 129, 0.2) !important;
+  padding: 20px !important;
+  color: #f8fafc !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  transform: scale(0.94) translateY(8px) !important;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.fg-batch-backdrop.fg-modal-open .fg-batch-dialog {
+  transform: scale(1) translateY(0) !important;
+}
+
+.fg-batch-modal-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 12px !important;
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.fg-batch-modal-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  color: #f8fafc !important;
+}
+
+.fg-batch-modal-close {
+  background: none !important;
+  border: none !important;
+  color: #94a3b8 !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  padding: 4px !important;
+  border-radius: 4px !important;
+  transition: color 0.15s !important;
+}
+
+.fg-batch-modal-close:hover {
+  color: #f8fafc !important;
+}
+
+.fg-batch-anime-title {
+  font-size: 13px !important;
+  color: #38bdf8 !important;
+  font-weight: 600 !important;
+  margin-bottom: 4px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.fg-batch-ep-count {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+  margin-bottom: 16px !important;
+}
+
+.fg-batch-section-label {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #cbd5e1 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  margin-bottom: 8px !important;
+}
+
+.fg-batch-range-group {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin-bottom: 16px !important;
+}
+
+.fg-batch-range-opt {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  color: #e2e8f0 !important;
+}
+
+.fg-batch-range-inputs {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-left: 24px !important;
+  margin-top: 4px !important;
+}
+
+.fg-batch-num-input {
+  width: 58px !important;
+  padding: 5px 8px !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 6px !important;
+  color: #f8fafc !important;
+  font-size: 12px !important;
+  text-align: center !important;
+  font-weight: 600 !important;
+}
+
+.fg-batch-num-input:focus {
+  outline: none !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4) !important;
+}
+
+.fg-batch-quality-select {
+  width: 100% !important;
+  padding: 8px 10px !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 6px !important;
+  color: #f8fafc !important;
+  font-size: 12px !important;
+  margin-bottom: 18px !important;
+  cursor: pointer !important;
+}
+
+.fg-batch-quality-select:focus {
+  outline: none !important;
+  border-color: #10b981 !important;
+}
+
+.fg-batch-quality-select option {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+.fg-batch-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding-top: 12px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.fg-batch-btn-cancel {
+  padding: 6px 12px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 6px !important;
+  color: #94a3b8 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.fg-batch-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+}
+
+.fg-batch-btn-submit {
+  padding: 6px 16px !important;
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  border: none !important;
+  border-radius: 6px !important;
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35) !important;
+  transition: all 0.2s !important;
+}
+
+.fg-batch-btn-submit:hover {
+  background: linear-gradient(135deg, #34d399, #10b981) !important;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.5) !important;
+  transform: translateY(-1px) !important;
+}
+
 
