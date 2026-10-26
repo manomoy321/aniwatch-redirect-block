@@ -299,6 +299,8 @@ function persistQueue(immediate = false) {
       downloadedBytes: job.downloadedBytes || 0,
       bytesReceived: job.bytesReceived || job.downloadedBytes || 0,
       totalBytes: job.totalBytes || 0,
+      completed: typeof job.completed === 'number' ? job.completed : 0,
+      total: typeof job.total === 'number' ? job.total : 0,
       speed: job.speed || 0,
       downloadId: job.downloadId || null,
       error: job.error || null,
@@ -391,31 +393,37 @@ function queueDownload(item) {
   const filename = item.filename || 'video.mp4';
   const quality = item.quality || '1080p';
   const type = item.type || (url && url.includes('.m3u8') ? 'hls' : 'direct');
+  const targetId = item.id || null;
 
   // Deduplication: prevent adding exact duplicate if already queued or downloading
   const existing = downloadQueue.find(j => 
-    j.url === url && 
+    (targetId && j.id === targetId) ||
+    (j.url === url && 
     j.filename === filename && 
-    ['queued', 'preparing', 'downloading'].includes(j.status)
+    ['queued', 'preparing', 'downloading'].includes(j.status))
   );
   if (existing) {
+    if (item.quality) existing.quality = item.quality;
+    if (item.totalBytes) existing.totalBytes = item.totalBytes;
+    if (item.embedUrl) existing.embedUrl = item.embedUrl;
+    persistQueue(true);
     return { success: true, job: existing, isDuplicate: true };
   }
 
   const newJob = {
-    id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    id: targetId || `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     url: url,
     embedUrl: item.embedUrl || '',
     filename: filename,
     quality: quality,
     type: type,
-    status: 'queued',
-    progress: 0,
-    downloadedBytes: 0,
-    bytesReceived: 0,
+    status: item.status || 'queued',
+    progress: item.progress || 0,
+    downloadedBytes: item.downloadedBytes || 0,
+    bytesReceived: item.bytesReceived || item.downloadedBytes || 0,
     totalBytes: item.totalBytes || 0,
     speed: 0,
-    downloadId: null,
+    downloadId: item.downloadId || null,
     error: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -461,8 +469,12 @@ async function startJob(job) {
         conflictAction: 'uniquify'
       };
 
+      // In Chrome, chrome.downloads.download forbids 'Referer' in headers array.
+      // Use declarativeNetRequest bypass headers instead.
       if (job.embedUrl && (job.url.startsWith('http://') || job.url.startsWith('https://'))) {
-        downloadOptions.headers = [{ name: 'Referer', value: job.embedUrl }];
+        try {
+          await setStreamBypassHeaders(job.embedUrl, job.url);
+        } catch (e) {}
       }
 
       if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.download) {
@@ -490,7 +502,7 @@ async function startJob(job) {
       processQueue();
     }
   } else if (job.type === 'hls') {
-    // HLS downloads run via segment runner and report progress
+    // HLS downloads run via segment runner in player frame and report live progress
     job.status = 'downloading';
     persistQueue(true);
   }
@@ -549,6 +561,19 @@ function cancelJob(jobId) {
     chrome.downloads.cancel(job.downloadId, () => {});
   }
 
+  // Notify active tabs running in-tab HLS downloads to abort
+  if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+    try {
+      chrome.tabs.query({}, (tabs) => {
+        if (tabs && Array.isArray(tabs)) {
+          tabs.forEach(t => {
+            if (t.id) chrome.tabs.sendMessage(t.id, { action: 'cancel_tab_download', jobId: jobId }).catch(() => {});
+          });
+        }
+      });
+    } catch (e) {}
+  }
+
   job.status = 'cancelled';
   job.speed = 0;
   persistQueue(true);
@@ -570,6 +595,22 @@ function retryJob(jobId) {
   job.retryCount = (job.retryCount || 0) + 1;
   persistQueue(true);
   processQueue();
+
+  // If HLS job, broadcast to active tab to trigger download
+  if (job.type === 'hls' && typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: 'execute_player_cmd',
+            cmd: 'download_video',
+            value: { url: job.url, filename: job.filename, quality: job.quality, id: job.id }
+          }).catch(() => {});
+        }
+      });
+    } catch (e) {}
+  }
+
   return { success: true };
 }
 
@@ -600,7 +641,11 @@ function clearCompletedJobs() {
 // Update job progress reported from runner (e.g. HLS or direct stream chunk)
 function updateJobProgress(data) {
   const jobId = data.jobId;
-  const job = downloadQueue.find(j => j.id === jobId || (data.downloadId && j.downloadId === data.downloadId));
+  const job = downloadQueue.find(j => 
+    (jobId && j.id === jobId) || 
+    (data.downloadId && j.downloadId === data.downloadId) ||
+    (data.filename && j.filename === data.filename && ['downloading', 'preparing', 'queued'].includes(j.status))
+  );
   if (!job) return { success: false, error: 'Job not found' };
 
   if (typeof data.progress === 'number') job.progress = Math.max(0, Math.min(100, data.progress));
@@ -610,6 +655,8 @@ function updateJobProgress(data) {
     job.bytesReceived = dlBytes;
   }
   if (typeof data.totalBytes === 'number' && data.totalBytes > 0) job.totalBytes = data.totalBytes;
+  if (typeof data.completed === 'number') job.completed = data.completed;
+  if (typeof data.total === 'number') job.total = data.total;
   if (typeof data.speed === 'number') job.speed = data.speed;
   if (data.status) job.status = data.status;
   if (data.downloadId) job.downloadId = data.downloadId;
@@ -624,7 +671,7 @@ function updateJobProgress(data) {
     persistQueue(false);
   }
 
-  return { success: true };
+  return { success: true, job };
 }
 
 // Listen for browser download events to sync direct downloads
@@ -1040,7 +1087,7 @@ function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   const len = bytes.length;
   let binary = '';
-  const chunkSize = 32768;
+  const chunkSize = 8192;
   for (let i = 0; i < len; i += chunkSize) {
     const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
     binary += String.fromCharCode.apply(null, chunk);

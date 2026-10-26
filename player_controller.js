@@ -1138,6 +1138,57 @@
     });
   }
 
+  // Extracts audio renditions declared via #EXT-X-MEDIA:TYPE=AUDIO from master HLS playlist
+  function extractAudioRenditions(playlistText, baseUrl, preferDub = false) {
+    if (!playlistText || !playlistText.includes('#EXT-X-MEDIA')) return [];
+    const lines = playlistText.split('\n');
+    const renditions = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith('#EXT-X-MEDIA:') && /TYPE=AUDIO/i.test(line)) {
+        const uriMatch = line.match(/URI=["']([^"']+)["']/i);
+        if (!uriMatch) continue;
+        const rawUri = uriMatch[1];
+        let url = rawUri;
+        try {
+          url = new URL(rawUri, baseUrl).href;
+        } catch (e) {}
+
+        const groupIdMatch = line.match(/GROUP-ID=["']([^"']+)["']/i);
+        const nameMatch = line.match(/NAME=["']([^"']+)["']/i);
+        const langMatch = line.match(/LANGUAGE=["']([^"']+)["']/i);
+        const isDefault = /DEFAULT=YES/i.test(line);
+        const isAutoSelect = /AUTOSELECT=YES/i.test(line);
+        const name = nameMatch ? nameMatch[1] : 'Audio';
+        const language = langMatch ? langMatch[1] : '';
+        const isDub = /dub|en|eng|english/i.test(name) || /en/i.test(language);
+
+        renditions.push({
+          url,
+          groupId: groupIdMatch ? groupIdMatch[1] : '',
+          name,
+          language,
+          isDefault,
+          isAutoSelect,
+          isDub
+        });
+      }
+    }
+
+    // Sort renditions based on preferDub and default settings
+    renditions.sort((a, b) => {
+      if (preferDub) {
+        if (a.isDub && !b.isDub) return -1;
+        if (!a.isDub && b.isDub) return 1;
+      }
+      if (a.isDefault && !b.isDefault) return -1;
+      if (!a.isDefault && b.isDefault) return 1;
+      return 0;
+    });
+
+    return renditions;
+  }
+
   // Discovers and filters ONLY the qualities that actually exist on the player control or stream
   function getAvailableQualities(videoEl, playlistText, baseUrl, videoDuration = null) {
     const duration = (videoDuration && !isNaN(videoDuration) && videoDuration > 60) ? videoDuration : 
@@ -2265,7 +2316,7 @@
     return createMp4Box('tfdt', p);
   }
 
-  function createTrun(samples, hasCto = false) {
+  function createTrun(samples, hasCto = false, dataOffset = 0) {
     const flags = 0x000001 | 0x000100 | 0x000200 | 0x000400 | (hasCto ? 0x000800 : 0);
     const sampleEntrySize = 4 + 4 + 4 + (hasCto ? 4 : 0);
     const payloadSize = 4 + 4 + 4 + (samples.length * sampleEntrySize);
@@ -2273,7 +2324,7 @@
     const v = new DataView(p.buffer);
     v.setUint32(0, flags, false);
     v.setUint32(4, samples.length, false);
-    v.setInt32(8, 0, false); // placeholder data_offset
+    v.setInt32(8, dataOffset, false); // data_offset is at offset 8 in payload (offset 16 in box)
     let off = 12;
     for (const s of samples) {
       v.setUint32(off, s.duration, false); off += 4;
@@ -2284,6 +2335,41 @@
       }
     }
     return createMp4Box('trun', p);
+  }
+
+  // Accurately patch trun data_offset fields inside an assembled moofBox without corrupting sample 0 duration
+  function patchMoofTrunDataOffsets(moofBox, videoDataOffset, audioDataOffset = 0) {
+    if (!moofBox || moofBox.byteLength < 16) return;
+    const view = new DataView(moofBox.buffer, moofBox.byteOffset, moofBox.byteLength);
+    let trafIndex = 0;
+    let offset = 8;
+    const moofEnd = moofBox.byteLength;
+
+    while (offset + 8 <= moofEnd) {
+      const bSize = view.getUint32(offset, false);
+      if (bSize < 8 || offset + bSize > moofEnd) break;
+      const bType = String.fromCharCode(moofBox[offset+4], moofBox[offset+5], moofBox[offset+6], moofBox[offset+7]);
+
+      if (bType === 'traf') {
+        let tSub = offset + 8;
+        const trafEnd = offset + bSize;
+        while (tSub + 8 <= trafEnd) {
+          const trSize = view.getUint32(tSub, false);
+          if (trSize < 8 || tSub + trSize > trafEnd) break;
+          const trType = String.fromCharCode(moofBox[tSub+4], moofBox[tSub+5], moofBox[tSub+6], moofBox[tSub+7]);
+
+          if (trType === 'trun') {
+            if (tSub + 20 <= trafEnd) {
+              const targetOffset = (trafIndex === 0) ? videoDataOffset : audioDataOffset;
+              view.setInt32(tSub + 16, targetOffset, false);
+            }
+          }
+          tSub += trSize;
+        }
+        trafIndex++;
+      }
+      offset += bSize;
+    }
   }
 
   // MPEG-TS Timestamp and PCR codec helpers
@@ -2339,7 +2425,9 @@
     let timescale = 1000;
     const videoTimescale = 90000;
     const sanitizedFragments = [];
-    let currentDecodeTime = 0;
+
+    // Maintain decode times independently per track so video and audio tfdt never collide
+    const trackCurrentDecodeTimes = new Map();
 
     for (let f = 0; f < fragmentBuffers.length; f++) {
       const raw = fragmentBuffers[f];
@@ -2363,6 +2451,8 @@
         if (bType === 'moof') {
           let sub = offset + 8;
           const moofEnd = offset + bSize;
+          let trafIndexInMoof = 0;
+
           while (sub + 8 <= moofEnd) {
             const sSize = view.getUint32(sub, false);
             if (sSize < 8 || sub + sSize > moofEnd) break;
@@ -2372,6 +2462,23 @@
               let tSub = sub + 8;
               const trafEnd = sub + sSize;
               let fragmentSampleDuration = 0;
+              let trackId = (trafIndexInMoof === 0) ? 1 : 2;
+
+              // Inspect tfhd to get actual track_id if present
+              let scanSub = tSub;
+              while (scanSub + 8 <= trafEnd) {
+                const trSize = view.getUint32(scanSub, false);
+                if (trSize < 8 || scanSub + trSize > trafEnd) break;
+                const trType = String.fromCharCode(u8[scanSub+4], u8[scanSub+5], u8[scanSub+6], u8[scanSub+7]);
+                if (trType === 'tfhd' && scanSub + 16 <= trafEnd) {
+                  const idFromTfhd = view.getUint32(scanSub + 12, false);
+                  if (idFromTfhd > 0) trackId = idFromTfhd;
+                  break;
+                }
+                scanSub += trSize;
+              }
+
+              let currentDecodeTime = trackCurrentDecodeTimes.get(trackId) || 0;
 
               while (tSub + 8 <= trafEnd) {
                 const trSize = view.getUint32(tSub, false);
@@ -2403,15 +2510,19 @@
                       sOff += step;
                     }
                   } else {
-                    fragmentSampleDuration += sampleCount * 3750;
+                    fragmentSampleDuration += sampleCount * (trackId === 2 ? 1024 : 3750);
                   }
                 }
                 tSub += trSize;
               }
               if (fragmentSampleDuration > 0) {
                 currentDecodeTime += fragmentSampleDuration;
-                totalDurationMs += (fragmentSampleDuration / videoTimescale) * 1000;
+                trackCurrentDecodeTimes.set(trackId, currentDecodeTime);
+                if (trackId === 1) {
+                  totalDurationMs += (fragmentSampleDuration / videoTimescale) * 1000;
+                }
               }
+              trafIndexInMoof++;
             }
             sub += sSize;
           }
@@ -2419,6 +2530,10 @@
         offset += bSize;
       }
       sanitizedFragments.push(u8);
+    }
+
+    if (totalDurationMs === 0 && trackCurrentDecodeTimes.has(2)) {
+      totalDurationMs = (trackCurrentDecodeTimes.get(2) / 48000) * 1000;
     }
 
     const durationSeconds = totalDurationMs > 0 ? (totalDurationMs / 1000) : (sanitizedFragments.length * 2.0);
@@ -2490,9 +2605,188 @@
     return { blob, filename: meta.filename, streamInfo, metadata: meta, format: 'isobmff' };
   }
 
+  // Combines separate video fMP4 (.m4s) and audio fMP4 (.m4s) into a unified fMP4 stream
+  function combineFmp4VideoAndAudio(videoInit, videoFragments, audioInit, audioFragments, meta = {}) {
+    if (!videoFragments || videoFragments.length === 0) {
+      if (audioFragments && audioFragments.length > 0) {
+        return optimizeFmp4ForSmoothPlayback(audioInit ? [audioInit, ...audioFragments] : audioFragments, meta);
+      }
+      return { blob: new Blob([], { type: 'video/mp4' }), filename: meta.filename, format: 'empty', streamInfo: {} };
+    }
+    if (!audioFragments || audioFragments.length === 0) {
+      return optimizeFmp4ForSmoothPlayback(videoInit ? [videoInit, ...videoFragments] : videoFragments, meta);
+    }
+
+    const vInitU8 = videoInit ? (videoInit instanceof Uint8Array ? videoInit : new Uint8Array(videoInit)) : null;
+    const aInitU8 = audioInit ? (audioInit instanceof Uint8Array ? audioInit : new Uint8Array(audioInit)) : null;
+
+    let combinedInit = vInitU8;
+
+    if (vInitU8 && aInitU8) {
+      // Find boxes in videoInit
+      let vFtyp = null;
+      let vMvhd = null;
+      let vTrak = null;
+      let vOff = 0;
+      const vView = new DataView(vInitU8.buffer, vInitU8.byteOffset, vInitU8.byteLength);
+
+      while (vOff + 8 <= vInitU8.byteLength) {
+        const bSize = vView.getUint32(vOff, false);
+        if (bSize < 8 || vOff + bSize > vInitU8.byteLength) break;
+        const bType = String.fromCharCode(vInitU8[vOff+4], vInitU8[vOff+5], vInitU8[vOff+6], vInitU8[vOff+7]);
+        if (bType === 'ftyp') {
+          vFtyp = vInitU8.subarray(vOff, vOff + bSize);
+        } else if (bType === 'moov') {
+          let mOff = vOff + 8;
+          const mEnd = vOff + bSize;
+          while (mOff + 8 <= mEnd) {
+            const sSize = vView.getUint32(mOff, false);
+            if (sSize < 8 || mOff + sSize > mEnd) break;
+            const sType = String.fromCharCode(vInitU8[mOff+4], vInitU8[mOff+5], vInitU8[mOff+6], vInitU8[mOff+7]);
+            if (sType === 'mvhd') vMvhd = vInitU8.subarray(mOff, mOff + sSize);
+            else if (sType === 'trak' && !vTrak) vTrak = vInitU8.subarray(mOff, mOff + sSize);
+            mOff += sSize;
+          }
+        }
+        vOff += bSize;
+      }
+
+      // Find audio trak in audioInit
+      let aTrak = null;
+      let aOff = 0;
+      const aView = new DataView(aInitU8.buffer, aInitU8.byteOffset, aInitU8.byteLength);
+      while (aOff + 8 <= aInitU8.byteLength) {
+        const bSize = aView.getUint32(aOff, false);
+        if (bSize < 8 || aOff + bSize > aInitU8.byteLength) break;
+        const bType = String.fromCharCode(aInitU8[aOff+4], aInitU8[aOff+5], aInitU8[aOff+6], aInitU8[aOff+7]);
+        if (bType === 'moov') {
+          let mOff = aOff + 8;
+          const mEnd = aOff + bSize;
+          while (mOff + 8 <= mEnd) {
+            const sSize = aView.getUint32(mOff, false);
+            if (sSize < 8 || mOff + sSize > mEnd) break;
+            const sType = String.fromCharCode(aInitU8[mOff+4], aInitU8[mOff+5], aInitU8[mOff+6], aInitU8[mOff+7]);
+            if (sType === 'trak') {
+              aTrak = aInitU8.subarray(mOff, mOff + sSize);
+              break;
+            }
+            mOff += sSize;
+          }
+        }
+        aOff += bSize;
+      }
+
+      if (vTrak && aTrak) {
+        // Remap audio trak track_id to 2 in tkhd
+        const patchedATrak = new Uint8Array(aTrak.byteLength);
+        patchedATrak.set(aTrak);
+        const aTrakView = new DataView(patchedATrak.buffer);
+        let tkOff = 8;
+        while (tkOff + 8 <= patchedATrak.byteLength) {
+          const sSize = aTrakView.getUint32(tkOff, false);
+          if (sSize < 8 || tkOff + sSize > patchedATrak.byteLength) break;
+          const sType = String.fromCharCode(patchedATrak[tkOff+4], patchedATrak[tkOff+5], patchedATrak[tkOff+6], patchedATrak[tkOff+7]);
+          if (sType === 'tkhd') {
+            const v = patchedATrak[tkOff + 8];
+            const trkIdOff = tkOff + 8 + (v === 0 ? 12 : 20);
+            if (trkIdOff + 4 <= tkOff + sSize) {
+              aTrakView.setUint32(trkIdOff, 2, false);
+            }
+            break;
+          }
+          tkOff += sSize;
+        }
+
+        // Build mvex containing trex for track 1 and track 2
+        function createTrexBox(trId) {
+          const tr = new Uint8Array(24);
+          const v = new DataView(tr.buffer);
+          v.setUint32(4, trId, false);
+          v.setUint32(8, 1, false);
+          return createMp4Box('trex', tr);
+        }
+        const mehdBox = createMp4Box('mehd', new Uint8Array(12));
+        const combinedMvex = createMp4Box('mvex', mehdBox, createTrexBox(1), createTrexBox(2));
+        const udtaBox = buildIlstMetadataBox(meta);
+
+        const moovChildren = [vMvhd, vTrak, patchedATrak, combinedMvex];
+        if (udtaBox) moovChildren.push(udtaBox);
+        const combinedMoov = createMp4Box('moov', ...moovChildren.filter(Boolean));
+
+        const ftyp = vFtyp || createMp4Box('ftyp', new Uint8Array([
+          0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00, 0x69, 0x73, 0x6f, 0x6d, 0x61, 0x76, 0x63, 0x31
+        ]));
+
+        const newInit = new Uint8Array(ftyp.byteLength + combinedMoov.byteLength);
+        newInit.set(ftyp, 0);
+        newInit.set(combinedMoov, ftyp.byteLength);
+        combinedInit = newInit;
+      }
+    }
+
+    // Interleave video and audio fragments in playback sequence
+    const interleaved = [];
+    const maxFrags = Math.max(videoFragments.length, audioFragments.length);
+
+    for (let i = 0; i < maxFrags; i++) {
+      if (i < videoFragments.length) {
+        const vf = videoFragments[i];
+        interleaved.push(vf instanceof Uint8Array ? vf : new Uint8Array(vf));
+      }
+      if (i < audioFragments.length) {
+        const af = audioFragments[i];
+        const afU8 = new Uint8Array(af instanceof Uint8Array ? af.buffer.slice(af.byteOffset, af.byteOffset + af.byteLength) : af.slice(0));
+        patchTfhdTrackId(afU8, 2);
+        interleaved.push(afU8);
+      }
+    }
+
+    return optimizeFmp4ForSmoothPlayback(combinedInit ? [combinedInit, ...interleaved] : interleaved, meta);
+  }
+
+  // Patches tfhd track_id inside all traf boxes in an fMP4 fragment
+  function patchTfhdTrackId(fragU8, newTrackId = 2) {
+    if (!fragU8 || fragU8.byteLength < 16) return;
+    const view = new DataView(fragU8.buffer, fragU8.byteOffset, fragU8.byteLength);
+    let offset = 0;
+    while (offset + 8 <= fragU8.byteLength) {
+      const bSize = view.getUint32(offset, false);
+      if (bSize < 8 || offset + bSize > fragU8.byteLength) break;
+      const bType = String.fromCharCode(fragU8[offset+4], fragU8[offset+5], fragU8[offset+6], fragU8[offset+7]);
+      if (bType === 'moof') {
+        let sub = offset + 8;
+        const moofEnd = offset + bSize;
+        while (sub + 8 <= moofEnd) {
+          const sSize = view.getUint32(sub, false);
+          if (sSize < 8 || sub + sSize > moofEnd) break;
+          const sType = String.fromCharCode(fragU8[sub+4], fragU8[sub+5], fragU8[sub+6], fragU8[sub+7]);
+          if (sType === 'traf') {
+            let tSub = sub + 8;
+            const trafEnd = sub + sSize;
+            while (tSub + 8 <= trafEnd) {
+              const trSize = view.getUint32(tSub, false);
+              if (trSize < 8 || tSub + trSize > trafEnd) break;
+              const trType = String.fromCharCode(fragU8[tSub+4], fragU8[tSub+5], fragU8[tSub+6], fragU8[tSub+7]);
+              if (trType === 'tfhd' && tSub + 16 <= trafEnd) {
+                view.setUint32(tSub + 12, newTrackId, false);
+              }
+              tSub += trSize;
+            }
+          }
+          sub += sSize;
+        }
+      }
+      offset += bSize;
+    }
+  }
+
   // Pure-JS MPEG-TS Timestamp Normalizer (Continuous PTS/PCR fallback)
   function smoothMpegTsTimestamps(tsBuffers, meta = {}) {
-    if (!tsBuffers || tsBuffers.length === 0) {
+    if (!tsBuffers) {
+      return { blob: new Blob([], { type: 'video/mp4' }), filename: meta.filename, format: 'empty', streamInfo: {} };
+    }
+    const buffers = Array.isArray(tsBuffers) ? tsBuffers : [tsBuffers];
+    if (buffers.length === 0) {
       return { blob: new Blob([], { type: 'video/mp4' }), filename: meta.filename, format: 'empty', streamInfo: {} };
     }
 
@@ -2505,9 +2799,16 @@
     let prevSegEndPts = null;
     let runningDelta = 0;
 
-    for (let s = 0; s < tsBuffers.length; s++) {
-      const raw = tsBuffers[s];
-      const u8 = new Uint8Array(raw instanceof Uint8Array ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) : raw.slice(0));
+    for (let s = 0; s < buffers.length; s++) {
+      const raw = buffers[s];
+      let u8;
+      if (raw instanceof Uint8Array) {
+        u8 = new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
+      } else if (raw && typeof raw.slice === 'function') {
+        u8 = new Uint8Array(raw.slice(0));
+      } else {
+        u8 = new Uint8Array(raw);
+      }
 
       let firstSegPts = null;
       let lastSegPts = null;
@@ -2590,7 +2891,7 @@
       smoothedBuffers.push(u8);
     }
 
-    const durationSec = prevSegEndPts !== null ? (prevSegEndPts / 90000) : (tsBuffers.length * 2.0);
+    const durationSec = prevSegEndPts !== null ? (prevSegEndPts / 90000) : (buffers.length * 2.0);
     const blob = new Blob(smoothedBuffers, { type: 'video/mp4' });
 
     const streamInfo = {
@@ -2606,10 +2907,15 @@
   }
 
   // Pure-JS MPEG-TS to Smooth MP4 Remuxer
-  function transmuxTsToSmoothMp4(tsBuffers, meta = {}) {
-    if (!tsBuffers || tsBuffers.length === 0) {
+  function transmuxTsToSmoothMp4(tsBuffers, meta = {}, audioBuffers = null) {
+    if (!tsBuffers) {
       return { blob: new Blob([], { type: 'video/mp4' }), filename: meta.filename, format: 'empty', streamInfo: {} };
     }
+    const buffers = Array.isArray(tsBuffers) ? tsBuffers : [tsBuffers];
+    if (buffers.length === 0) {
+      return { blob: new Blob([], { type: 'video/mp4' }), filename: meta.filename, format: 'empty', streamInfo: {} };
+    }
+    const aBuffers = audioBuffers ? (Array.isArray(audioBuffers) ? audioBuffers : [audioBuffers]) : null;
 
     const TS_SIZE = 188;
     const TS_SYNC = 0x47;
@@ -2617,9 +2923,9 @@
     let videoPid = null;
     let audioPid = null;
 
-    // Detect Video and Audio PIDs
-    for (let b = 0; b < tsBuffers.length && (!videoPid || !audioPid); b++) {
-      const raw = tsBuffers[b];
+    // Detect Video and Audio PIDs from buffers
+    for (let b = 0; b < buffers.length && (!videoPid || !audioPid); b++) {
+      const raw = buffers[b];
       const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       for (let pos = 0; pos + TS_SIZE <= u8.length; pos += TS_SIZE) {
         if (u8[pos] !== TS_SYNC) continue;
@@ -2640,6 +2946,37 @@
             if (((sid >= 0xc0 && sid <= 0xdf) || sid === 0xbd) && !audioPid) audioPid = pid;
           }
         }
+      }
+    }
+
+    // If separate audioBuffers provided, also check for audioPid inside audioBuffers
+    if (audioBuffers && audioBuffers.length > 0) {
+      for (let b = 0; b < audioBuffers.length; b++) {
+        const raw = audioBuffers[b];
+        const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+        for (let pos = 0; pos + TS_SIZE <= u8.length; pos += TS_SIZE) {
+          if (u8[pos] !== TS_SYNC) continue;
+          const b1 = u8[pos + 1];
+          const b2 = u8[pos + 2];
+          const pusi = (b1 & 0x40) !== 0;
+          const pid = ((b1 & 0x1f) << 8) | b2;
+          const afc = (u8[pos + 3] >> 4) & 0x03;
+
+          let pStart = pos + 4;
+          if (afc === 2 || afc === 3) pStart += 1 + u8[pStart];
+          if (afc === 2 || pStart >= pos + TS_SIZE) continue;
+
+          if (pusi && pStart + 4 <= pos + TS_SIZE) {
+            if (u8[pStart] === 0x00 && u8[pStart + 1] === 0x00 && u8[pStart + 2] === 0x01) {
+              const sid = u8[pStart + 3];
+              if ((sid >= 0xc0 && sid <= 0xdf) || sid === 0xbd) {
+                audioPid = pid;
+                break;
+              }
+            }
+          }
+        }
+        if (audioPid) break;
       }
     }
 
@@ -2752,6 +3089,7 @@
         }
       } else {
         let aIdx = 0;
+        let adtsFrameInPes = 0;
         while (aIdx + 7 <= payload.length) {
           if (payload[aIdx] === 0xff && (payload[aIdx+1] & 0xf0) === 0xf0) {
             const profile = ((payload[aIdx+2] >> 6) & 0x03) + 1;
@@ -2769,9 +3107,13 @@
                 audioChannels = chCfg || 2;
               }
               const rawFrame = payload.subarray(aIdx + hSize, aIdx + fLen);
+              const framePts = (pts !== null)
+                ? pts + Math.round(adtsFrameInPes * (1024 * 90000 / audioSampleRate))
+                : (audioFrames.length * 1024);
+              adtsFrameInPes++;
               audioFrames.push({
                 data: rawFrame,
-                pts: pts || (audioFrames.length * 1024)
+                pts: framePts
               });
               aIdx += fLen;
               continue;
@@ -2782,8 +3124,9 @@
       }
     }
 
-    for (let b = 0; b < tsBuffers.length; b++) {
-      const raw = tsBuffers[b];
+    // Demux video TS packets (and audio TS packets if multiplexed)
+    for (let b = 0; b < buffers.length; b++) {
+      const raw = buffers[b];
       const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       for (let pos = 0; pos + TS_SIZE <= u8.length; pos += TS_SIZE) {
         if (u8[pos] !== TS_SYNC) continue;
@@ -2807,7 +3150,7 @@
             curVideoPes.chunks.push(chunk);
             curVideoPes.totalLen += chunk.length;
           }
-        } else if (pid === audioPid) {
+        } else if (pid === audioPid && (!aBuffers || aBuffers.length === 0)) {
           if (pusi) {
             if (curAudioPes) flushPes(curAudioPes, false);
             curAudioPes = { chunks: [], totalLen: 0 };
@@ -2819,11 +3162,79 @@
         }
       }
     }
+
+    // Demux separate audio buffers if provided
+    if (aBuffers && aBuffers.length > 0) {
+      for (let ab = 0; ab < aBuffers.length; ab++) {
+        const raw = aBuffers[ab];
+        const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+        if (u8.length === 0) continue;
+
+        if (u8[0] === TS_SYNC) {
+          // MPEG-TS audio stream
+          for (let pos = 0; pos + TS_SIZE <= u8.length; pos += TS_SIZE) {
+            if (u8[pos] !== TS_SYNC) continue;
+            const b1 = u8[pos + 1];
+            const b2 = u8[pos + 2];
+            const pusi = (b1 & 0x40) !== 0;
+            const pid = ((b1 & 0x1f) << 8) | b2;
+            const afc = (u8[pos + 3] >> 4) & 0x03;
+
+            let pStart = pos + 4;
+            if (afc === 2 || afc === 3) pStart += 1 + u8[pStart];
+            if (afc === 2 || pStart >= pos + TS_SIZE) continue;
+
+            const chunk = u8.subarray(pStart, pos + TS_SIZE);
+            if (pid === audioPid) {
+              if (pusi) {
+                if (curAudioPes) flushPes(curAudioPes, false);
+                curAudioPes = { chunks: [], totalLen: 0 };
+              }
+              if (curAudioPes) {
+                curAudioPes.chunks.push(chunk);
+                curAudioPes.totalLen += chunk.length;
+              }
+            }
+          }
+        } else if (u8[0] === 0xff && (u8[1] & 0xf0) === 0xf0) {
+          // Raw ADTS audio stream
+          let aIdx = 0;
+          while (aIdx + 7 <= u8.length) {
+            if (u8[aIdx] === 0xff && (u8[aIdx+1] & 0xf0) === 0xf0) {
+              const profile = ((u8[aIdx+2] >> 6) & 0x03) + 1;
+              const sfIdx = (u8[aIdx+2] >> 2) & 0x0f;
+              const chCfg = ((u8[aIdx+2] & 0x01) << 2) | ((u8[aIdx+3] >> 6) & 0x03);
+              const fLen = ((u8[aIdx+3] & 0x03) << 11) | (u8[aIdx+4] << 3) | ((u8[aIdx+5] >> 5) & 0x07);
+              const protAbsent = u8[aIdx+1] & 0x01;
+              const hSize = protAbsent ? 7 : 9;
+
+              if (fLen >= hSize && aIdx + fLen <= u8.length) {
+                if (!audioConfig) {
+                  audioConfig = new Uint8Array([(profile << 3) | (sfIdx >> 1), ((sfIdx & 1) << 7) | (chCfg << 3)]);
+                  const sRates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+                  audioSampleRate = sRates[sfIdx] || 48000;
+                  audioChannels = chCfg || 2;
+                }
+                const rawFrame = u8.subarray(aIdx + hSize, aIdx + fLen);
+                audioFrames.push({
+                  data: rawFrame,
+                  pts: audioFrames.length * Math.round(1024 * 90000 / audioSampleRate)
+                });
+                aIdx += fLen;
+                continue;
+              }
+            }
+            aIdx++;
+          }
+        }
+      }
+    }
+
     if (curVideoPes) flushPes(curVideoPes, true);
     if (curAudioPes) flushPes(curAudioPes, false);
 
     if (videoFrames.length === 0 || !sps) {
-      return smoothMpegTsTimestamps(tsBuffers, meta);
+      return smoothMpegTsTimestamps(buffers, meta);
     }
 
     const basePts = videoFrames[0].pts;
@@ -3001,21 +3412,43 @@
     if (udtaBox) moovBoxes.push(udtaBox);
     const moovBox = createMp4Box('moov', ...moovBoxes);
 
-    // Group frames into fragments
+    // Group video frames into fragments starting cleanly on keyframe (IDR) boundaries to prevent seeking glitch/delay
+    const videoChunks = [];
+    let curChunk = [];
+    const TARGET_FRAMES_PER_FRAG = 20;
+    const MAX_FRAMES_PER_FRAG = 60;
+
+    for (let i = 0; i < videoFrames.length; i++) {
+      const frame = videoFrames[i];
+      if (frame.isKeyframe && curChunk.length >= TARGET_FRAMES_PER_FRAG) {
+        videoChunks.push(curChunk);
+        curChunk = [];
+      } else if (curChunk.length >= MAX_FRAMES_PER_FRAG) {
+        videoChunks.push(curChunk);
+        curChunk = [];
+      }
+      curChunk.push(frame);
+    }
+    if (curChunk.length > 0) {
+      videoChunks.push(curChunk);
+    }
+
     const fragments = [];
-    const FRAMES_PER_FRAG = 30;
     let fragSeq = 1;
     let videoOffsetTime = 0;
     let audioIdx = 0;
     let audioOffsetTime = 0;
 
-    for (let vfIdx = 0; vfIdx < videoFrames.length; vfIdx += FRAMES_PER_FRAG) {
-      const chunkVf = videoFrames.slice(vfIdx, vfIdx + FRAMES_PER_FRAG);
+    for (let chunkIdx = 0; chunkIdx < videoChunks.length; chunkIdx++) {
+      const chunkVf = videoChunks[chunkIdx];
       const chunkDuration90k = chunkVf.reduce((acc, f) => acc + f.duration, 0);
       const chunkSec = chunkDuration90k / 90000;
       const audioChunkCount = Math.round(chunkSec * (audioSampleRate / 1024));
-      const chunkAf = audioFrames.slice(audioIdx, audioIdx + audioChunkCount);
-      audioIdx += audioChunkCount;
+      const isLastChunk = (chunkIdx === videoChunks.length - 1);
+      const chunkAf = isLastChunk
+        ? audioFrames.slice(audioIdx)
+        : audioFrames.slice(audioIdx, audioIdx + audioChunkCount);
+      audioIdx += chunkAf.length;
 
       const mfhd = createMfhd(fragSeq++);
       const tfhdVideo = createTfhd(1);
@@ -3028,7 +3461,7 @@
         flags: f.isKeyframe ? 0x02000000 : 0x01010000,
         cto: Math.max(0, f.pts - f.dts)
       }));
-      const trunVideo = createTrun(trunVideoSamples, true);
+      const trunVideo = createTrun(trunVideoSamples, true, 0);
       const trafVideo = createMp4Box('traf', tfhdVideo, tfdtVideo, trunVideo);
 
       let trafAudio = null;
@@ -3042,7 +3475,7 @@
           size: f.data.byteLength,
           flags: 0x02000000
         }));
-        trunAudio = createTrun(trunAudioSamples, false);
+        trunAudio = createTrun(trunAudioSamples, false, 0);
         trafAudio = createMp4Box('traf', tfhdAudio, tfdtAudio, trunAudio);
       }
 
@@ -3055,16 +3488,11 @@
       for (const f of chunkAf) mdatPayloadLen += f.data.byteLength;
 
       const videoDataOffset = moofBox.byteLength + 8;
-      const aView = new DataView(trunVideo.buffer, trunVideo.byteOffset, trunVideo.byteLength);
-      aView.setInt32(20, videoDataOffset, false);
+      let audioDataOffset = videoDataOffset;
+      for (const f of chunkVf) audioDataOffset += f.data.byteLength;
 
-      if (trunAudio) {
-        let vTotal = 0;
-        for (const f of chunkVf) vTotal += f.data.byteLength;
-        const audioDataOffset = videoDataOffset + vTotal;
-        const auView = new DataView(trunAudio.buffer, trunAudio.byteOffset, trunAudio.byteLength);
-        auView.setInt32(20, audioDataOffset, false);
-      }
+      // Accurately patch the trun data_offset fields inside moofBox!
+      patchMoofTrunDataOffsets(moofBox, videoDataOffset, trunAudio ? audioDataOffset : 0);
 
       const mdatPayload = new Uint8Array(mdatPayloadLen);
       let mOff = 0;
@@ -3158,12 +3586,19 @@
 
     let result;
     try {
+      const audioBuffers = options.audioBuffers || effectiveMeta.audioBuffers || null;
+      const audioInitBuf = options.audioInitBuf || effectiveMeta.audioInitBuf || null;
+
       // Branch A: ISO BMFF / fMP4 (has initSegmentBuffer or starts with ISO BMFF box)
       if (format === 'isobmff' || Boolean(effectiveInitBuf) || (effectivePlaylist && (effectivePlaylist.includes('.m4s') || /mp4/i.test(effectivePlaylist)))) {
-        const allBuffers = effectiveInitBuf ? [effectiveInitBuf, ...validBuffers] : validBuffers;
-        result = optimizeFmp4ForSmoothPlayback(allBuffers, effectiveMeta);
+        if (audioBuffers && audioBuffers.length > 0) {
+          result = combineFmp4VideoAndAudio(effectiveInitBuf, validBuffers, audioInitBuf, audioBuffers, effectiveMeta);
+        } else {
+          const allBuffers = effectiveInitBuf ? [effectiveInitBuf, ...validBuffers] : validBuffers;
+          result = optimizeFmp4ForSmoothPlayback(allBuffers, effectiveMeta);
+        }
       } else if (format === 'mpegts' || (effectivePlaylist && effectivePlaylist.includes('.ts'))) {
-        result = transmuxTsToSmoothMp4(validBuffers, effectiveMeta);
+        result = transmuxTsToSmoothMp4(validBuffers, effectiveMeta, audioBuffers);
       } else {
         const all = effectiveInitBuf ? [effectiveInitBuf, ...validBuffers] : validBuffers;
         const blob = new Blob(all, { type: 'video/mp4' });
@@ -3265,6 +3700,106 @@
     }
   }
 
+  // Helper to parse segments and initialization MAP from HLS media playlists
+  function parseHlsSegments(content, baseUrl) {
+    if (!content) return { segments: [], initSegmentUrl: null, initByteRange: null };
+    let mediaSeq = 0;
+    const mediaSeqMatch = content.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/i);
+    if (mediaSeqMatch) {
+      mediaSeq = parseInt(mediaSeqMatch[1], 10) || 0;
+    }
+
+    let initSegmentUrl = null;
+    let initByteRange = null;
+    const mapMatch = content.match(/#EXT-X-MAP:URI="([^"]+)"(?:,BYTERANGE="?([^"\s]+)"?)?/i);
+    if (mapMatch) {
+      try {
+        initSegmentUrl = new URL(mapMatch[1], baseUrl).href;
+      } catch (e) {
+        initSegmentUrl = mapMatch[1];
+      }
+      if (mapMatch[2]) {
+        initByteRange = parseHlsByteRange(mapMatch[2]);
+      }
+    }
+
+    const lines = content.split('\n');
+    const segments = [];
+    let currentKeyInfo = null;
+    let segIdxCounter = 0;
+    let currentByteRange = null;
+    let prevByteRangeEnd = 0;
+
+    let currentDuration = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      if (line.startsWith('#EXTINF:')) {
+        const infMatch = line.match(/#EXTINF:([\d.]+)/i);
+        if (infMatch) {
+          currentDuration = parseFloat(infMatch[1]) || 0;
+        }
+      } else if (line.startsWith('#EXT-X-KEY:')) {
+        const methodMatch = line.match(/METHOD=([A-Z0-9-]+)/i);
+        const method = methodMatch ? methodMatch[1].toUpperCase() : 'NONE';
+        if (method === 'AES-128') {
+          const uriMatch = line.match(/URI="([^"]+)"/i);
+          const ivMatch = line.match(/IV=(0x[0-9a-fA-F]+)/i);
+          const keyUri = uriMatch ? uriMatch[1] : null;
+          let resolvedKeyUrl = null;
+          if (keyUri) {
+            try {
+              resolvedKeyUrl = new URL(keyUri, baseUrl).href;
+            } catch (e) {
+              resolvedKeyUrl = keyUri;
+            }
+          }
+          currentKeyInfo = {
+            method: 'AES-128',
+            keyUrl: resolvedKeyUrl,
+            ivHex: ivMatch ? ivMatch[1] : null
+          };
+        } else {
+          currentKeyInfo = null;
+        }
+      } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+        const brMatch = line.match(/#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?/i);
+        if (brMatch) {
+          const len = parseInt(brMatch[1], 10);
+          const offset = brMatch[2] !== undefined ? parseInt(brMatch[2], 10) : prevByteRangeEnd;
+          currentByteRange = `${offset}-${offset + len - 1}`;
+          prevByteRangeEnd = offset + len;
+        }
+      } else if (!line.startsWith('#')) {
+        let segUrl;
+        try {
+          segUrl = new URL(line, baseUrl).href;
+        } catch (e) {
+          segUrl = line;
+        }
+        segments.push({
+          url: segUrl,
+          duration: currentDuration,
+          keyInfo: currentKeyInfo ? { ...currentKeyInfo } : null,
+          seq: mediaSeq + segIdxCounter,
+          byteRange: currentByteRange
+        });
+        currentDuration = 0;
+        currentByteRange = null;
+        segIdxCounter++;
+      }
+    }
+    return {
+      segments,
+      initSegmentUrl,
+      initUrl: initSegmentUrl,
+      initByteRange,
+      isFmp4: !!initSegmentUrl
+    };
+  }
+
   // Universal HLS stream downloader: fetches playlist, segments, decrypts AES-128, handles fMP4, and stitches into blob
   async function downloadHlsStream(m3u8Url, filename, onProgress, chosenQuality = '1080p', embedUrl = null, externalJobId = null) {
     const hlsJobId = externalJobId || ('fg_hls_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
@@ -3294,7 +3829,19 @@
       }
     }
 
+    let audioPlaylistUrl = null;
+    let audioPlaylistContent = null;
+
     if (playlistContent && playlistContent.includes('#EXT-X-STREAM-INF')) {
+      // Check for separate audio renditions in master playlist
+      const audioRenditions = extractAudioRenditions(playlistContent, m3u8Url, playerSettings.preferDub);
+      if (audioRenditions && audioRenditions.length > 0) {
+        const chosenAudio = audioRenditions[0];
+        if (chosenAudio && chosenAudio.url) {
+          audioPlaylistUrl = chosenAudio.url;
+        }
+      }
+
       let available = [];
       try {
         const getQualitiesFn = (typeof getAvailableQualities === 'function')
@@ -3323,109 +3870,67 @@
       throw new Error('Failed to retrieve HLS playlist content.');
     }
 
-    // Parse Media Sequence
-    let mediaSeq = 0;
-    const mediaSeqMatch = playlistContent.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/i);
-    if (mediaSeqMatch) {
-      mediaSeq = parseInt(mediaSeqMatch[1], 10) || 0;
-    }
-
-    // Parse fMP4 Init Segment (#EXT-X-MAP:URI="..."[,BYTERANGE="..."])
-    let initSegmentUrl = null;
-    let initByteRange = null;
-    const mapMatch = playlistContent.match(/#EXT-X-MAP:URI="([^"]+)"(?:,BYTERANGE="?([^"\s]+)"?)?/i);
-    if (mapMatch) {
+    // Fetch separate audio playlist if declared
+    if (audioPlaylistUrl) {
       try {
-        initSegmentUrl = new URL(mapMatch[1], mediaPlaylistUrl).href;
-      } catch (e) {
-        initSegmentUrl = mapMatch[1];
-      }
-      if (mapMatch[2]) {
-        initByteRange = parseHlsByteRange(mapMatch[2]);
+        audioPlaylistContent = await fetchResourceSafe(audioPlaylistUrl, embedUrl, false);
+      } catch (err) {
+        console.warn('[FocusGuard] Failed to fetch separate audio playlist:', err);
       }
     }
 
-    const lines = playlistContent.split('\n');
-    const segments = [];
-    let currentKeyInfo = null;
-    let segIdxCounter = 0;
-    let currentByteRange = null;
-    let prevByteRangeEnd = 0;
+    // Parse video segments and video init segment
+    const videoInfo = parseHlsSegments(playlistContent, mediaPlaylistUrl);
+    const videoSegments = videoInfo.segments;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      if (line.startsWith('#EXT-X-KEY:')) {
-        const methodMatch = line.match(/METHOD=([A-Z0-9-]+)/i);
-        const method = methodMatch ? methodMatch[1].toUpperCase() : 'NONE';
-        if (method === 'AES-128') {
-          const uriMatch = line.match(/URI="([^"]+)"/i);
-          const ivMatch = line.match(/IV=(0x[0-9a-fA-F]+)/i);
-          const keyUri = uriMatch ? uriMatch[1] : null;
-          let resolvedKeyUrl = null;
-          if (keyUri) {
-            try {
-              resolvedKeyUrl = new URL(keyUri, mediaPlaylistUrl).href;
-            } catch (e) {
-              resolvedKeyUrl = keyUri;
-            }
-          }
-          currentKeyInfo = {
-            method: 'AES-128',
-            keyUrl: resolvedKeyUrl,
-            ivHex: ivMatch ? ivMatch[1] : null
-          };
-        } else {
-          currentKeyInfo = null;
-        }
-      } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
-        const brMatch = line.match(/#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?/i);
-        if (brMatch) {
-          const len = parseInt(brMatch[1], 10);
-          const offset = brMatch[2] !== undefined ? parseInt(brMatch[2], 10) : prevByteRangeEnd;
-          currentByteRange = `${offset}-${offset + len - 1}`;
-          prevByteRangeEnd = offset + len;
-        }
-      } else if (!line.startsWith('#')) {
-        let segUrl;
-        try {
-          segUrl = new URL(line, mediaPlaylistUrl).href;
-        } catch (e) {
-          segUrl = line;
-        }
-        segments.push({
-          url: segUrl,
-          keyInfo: currentKeyInfo ? { ...currentKeyInfo } : null,
-          seq: mediaSeq + segIdxCounter,
-          byteRange: currentByteRange
-        });
-        currentByteRange = null;
-        segIdxCounter++;
-      }
-    }
-
-    if (segments.length === 0) {
+    if (videoSegments.length === 0) {
       throw new Error('No segments found in playlist.');
     }
 
-    // Fetch Init Segment if fMP4 stream
-    let initSegmentBuffer = null;
-    if (initSegmentUrl) {
-      try {
-        initSegmentBuffer = await fetchResourceSafe(initSegmentUrl, embedUrl, true, initByteRange);
-      } catch (err) {
-        console.warn('[FocusGuard] Failed fetching init segment:', err);
-      }
-    }
-    // Fallback to MSE init segment if present in main world
-    if ((!initSegmentBuffer || initSegmentBuffer.byteLength === 0) && typeof window !== 'undefined' && window.__focusguard_mse_init_segment__) {
-      initSegmentBuffer = window.__focusguard_mse_init_segment__;
+    // Parse audio segments and audio init segment if separate audio playlist exists
+    let audioSegments = [];
+    let audioInfo = null;
+    if (audioPlaylistContent) {
+      audioInfo = parseHlsSegments(audioPlaylistContent, audioPlaylistUrl);
+      audioSegments = audioInfo.segments;
     }
 
-    const total = segments.length;
+    // Fetch video init segment if fMP4 stream
+    let videoInitSegmentBuffer = null;
+    if (videoInfo.initSegmentUrl) {
+      try {
+        videoInitSegmentBuffer = await fetchResourceSafe(videoInfo.initSegmentUrl, embedUrl, true, videoInfo.initByteRange);
+      } catch (err) {
+        console.warn('[FocusGuard] Failed fetching video init segment:', err);
+      }
+    }
+    if ((!videoInitSegmentBuffer || videoInitSegmentBuffer.byteLength === 0) && typeof window !== 'undefined' && window.__focusguard_mse_init_segment__) {
+      videoInitSegmentBuffer = window.__focusguard_mse_init_segment__;
+    }
+
+    // Fetch audio init segment if fMP4 stream
+    let audioInitSegmentBuffer = null;
+    if (audioInfo && audioInfo.initSegmentUrl) {
+      try {
+        audioInitSegmentBuffer = await fetchResourceSafe(audioInfo.initSegmentUrl, embedUrl, true, audioInfo.initByteRange);
+      } catch (err) {
+        console.warn('[FocusGuard] Failed fetching audio init segment:', err);
+      }
+    }
+
+    // Build unified download task queue
+    const allTasks = [];
+    for (let i = 0; i < videoSegments.length; i++) {
+      allTasks.push({ type: 'video', idx: i, seg: videoSegments[i] });
+    }
+    for (let i = 0; i < audioSegments.length; i++) {
+      allTasks.push({ type: 'audio', idx: i, seg: audioSegments[i] });
+    }
+
+    const total = allTasks.length;
     let completed = 0;
-    const buffers = new Array(total);
+    const videoBuffers = new Array(videoSegments.length);
+    const audioBuffers = audioSegments.length > 0 ? new Array(audioSegments.length) : null;
     let nextIdx = 0;
     const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
 
@@ -3460,9 +3965,10 @@
           if (isPlaybackActive()) continue;
         }
 
-        const idx = nextIdx++;
-        if (idx >= total) break;
-        const seg = segments[idx];
+        const taskIdx = nextIdx++;
+        if (taskIdx >= total) break;
+        const task = allTasks[taskIdx];
+        const seg = task.seg;
         let buffer = null;
         let attempts = 0;
         let lastErr = null;
@@ -3485,7 +3991,7 @@
 
         if (!buffer || buffer.byteLength === 0) {
           if (lastErr) {
-            console.warn(`[FocusGuard] Segment ${idx + 1}/${total} warning:`, lastErr.message);
+            console.warn(`[FocusGuard] ${task.type} segment ${task.idx + 1} warning:`, lastErr.message);
           }
           buffer = new ArrayBuffer(0);
         } else if (seg.keyInfo && seg.keyInfo.method === 'AES-128' && seg.keyInfo.keyUrl && subtle) {
@@ -3494,11 +4000,16 @@
             const ivBytes = seg.keyInfo.ivHex ? hexToUint8Array(seg.keyInfo.ivHex) : makeSequenceIv(seg.seq);
             buffer = await decryptSegmentData(buffer, cryptoKey, ivBytes);
           } catch (decErr) {
-            console.warn(`[FocusGuard] Decryption failed for segment ${idx + 1}:`, decErr);
+            console.warn(`[FocusGuard] Decryption failed for ${task.type} segment ${task.idx + 1}:`, decErr);
           }
         }
 
-        buffers[idx] = buffer;
+        if (task.type === 'video') {
+          videoBuffers[task.idx] = buffer;
+        } else if (audioBuffers) {
+          audioBuffers[task.idx] = buffer;
+        }
+
         completed++;
         if (onProgress) {
           const pct = Math.round((completed / total) * 100);
@@ -3520,8 +4031,17 @@
       }
       await Promise.all(workers);
 
-      const validBuffers = buffers.filter(b => b && b.byteLength > 0);
-      const conversionResult = await convertAndRemuxStreamForSmoothPlayback(validBuffers, initSegmentBuffer, playlistContent, { filename, quality: chosenQuality }, chosenQuality);
+      const validVideoBuffers = videoBuffers.filter(b => b && b.byteLength > 0);
+      const validAudioBuffers = audioBuffers ? audioBuffers.filter(b => b && b.byteLength > 0) : null;
+
+      const conversionResult = await convertAndRemuxStreamForSmoothPlayback(
+        validVideoBuffers,
+        videoInitSegmentBuffer,
+        playlistContent,
+        { filename, quality: chosenQuality, audioBuffers: validAudioBuffers, audioInitBuf: audioInitSegmentBuffer },
+        chosenQuality,
+        { audioBuffers: validAudioBuffers, audioInitBuf: audioInitSegmentBuffer }
+      );
       const blob = conversionResult.blob;
       try {
         blob.objectUrl = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : '';
@@ -5733,6 +6253,11 @@
     window.__focusguard_decode_base64__ = decodeBase64ToArrayBuffer;
     window.__focusguard_playback_stall_recovery__ = handlePlaybackStallRecovery;
     window.__focusguard_check_playback_watchdog__ = checkPlayerPlaybackWatchdog;
+    window.__focusguard_extract_audio_renditions__ = extractAudioRenditions;
+    window.__focusguard_combine_fmp4_video_audio__ = combineFmp4VideoAndAudio;
+    window.__focusguard_patch_moof_trun_offsets__ = patchMoofTrunDataOffsets;
+    window.__focusguard_parse_hls_segments__ = parseHlsSegments;
+    window.__focusguard_download_hls_stream__ = downloadHlsStream;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -5766,7 +6291,12 @@
       downloadEpisodeMetadataFile,
       decodeBase64ToArrayBuffer,
       handlePlaybackStallRecovery,
-      checkPlayerPlaybackWatchdog
+      checkPlayerPlaybackWatchdog,
+      extractAudioRenditions,
+      combineFmp4VideoAndAudio,
+      patchMoofTrunDataOffsets,
+      parseHlsSegments,
+      downloadHlsStream
     };
   }
 })();

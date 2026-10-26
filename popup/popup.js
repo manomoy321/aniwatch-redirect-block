@@ -416,14 +416,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       let metaText = '';
       if (isDownloading) {
-        const dlBytes = formatBytes(job.bytesReceived);
-        const total = job.totalBytes > 0 ? ` / ${formatBytes(job.totalBytes)}` : '';
-        const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
-        metaText = `${dlBytes}${total}${spd}`;
+        if (job.total > 0 && job.completed !== undefined) {
+          const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
+          const bytesPart = job.bytesReceived > 0 ? `${formatBytes(job.bytesReceived)} • ` : '';
+          metaText = `${bytesPart}Segments: ${job.completed}/${job.total}${spd}`;
+        } else {
+          const dlBytes = formatBytes(job.bytesReceived);
+          const total = job.totalBytes > 0 ? ` / ${formatBytes(job.totalBytes)}` : '';
+          const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
+          metaText = `${dlBytes}${total}${spd}`;
+        }
       } else if (isComplete) {
         metaText = job.totalBytes > 0 ? formatBytes(job.totalBytes) : 'Complete';
       } else if (isFailed) {
-        metaText = job.error ? String(job.error).substring(0, 32) : 'Failed';
+        metaText = job.error ? String(job.error).substring(0, 48) : 'Download error';
       } else if (isPaused) {
         metaText = 'Paused';
       } else if (isQueued) {

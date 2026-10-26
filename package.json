@@ -4,7 +4,7 @@
   "description": "Aniwatch Episode Downloader & Redirect Blocker - Download anime episodes in 1080p, 720p, and 480p from Aniwatch and HiAnime with live on-player download progress bar.",
   "main": "background.js",
   "scripts": {
-    "test": "node tests/test_download_episode.js && node tests/test_universal_download.js && node tests/test_m4s_and_quality_control.js && node tests/test_complete_video_smooth_playback.js && node tests/test_dub_all_time.js && node tests/test_dub_continuity.js && node tests/test_background_download_queue_and_api.js && node tests/test_smooth_vlc_playback_and_metadata.js && node tests/test_player_playback_crash_prevention.js",
+    "test": "node tests/test_download_episode.js && node tests/test_universal_download.js && node tests/test_m4s_and_quality_control.js && node tests/test_complete_video_smooth_playback.js && node tests/test_dub_all_time.js && node tests/test_dub_continuity.js && node tests/test_background_download_queue_and_api.js && node tests/test_smooth_vlc_playback_and_metadata.js && node tests/test_player_playback_crash_prevention.js && node tests/test_audio_and_seek_smoothness.js",
     "test:download": "node tests/test_download_episode.js",
     "test:universal": "node tests/test_universal_download.js",
     "test:m4s": "node tests/test_m4s_and_quality_control.js",
@@ -13,6 +13,7 @@
     "test:queue": "node tests/test_background_download_queue_and_api.js",
     "test:smooth": "node tests/test_smooth_vlc_playback_and_metadata.js",
     "test:crash-prevention": "node tests/test_player_playback_crash_prevention.js",
+    "test:audio-seek": "node tests/test_audio_and_seek_smoothness.js",
     "package": "node scripts/package_extension.js",
     "build:zip": "powershell -ExecutionPolicy Bypass -File scripts/package_extension.ps1"
   },
