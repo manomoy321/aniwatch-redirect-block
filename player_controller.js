@@ -6355,7 +6355,11 @@
       combineFmp4VideoAndAudio,
       patchMoofTrunDataOffsets,
       parseHlsSegments,
-      downloadHlsStream
+      downloadHlsStream,
+      triggerFileSave,
+      onEpisodeChangeDetected,
+      fetchResourceSafe,
+      playerSettings
     };
   }
 })();
