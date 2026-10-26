@@ -940,3 +940,33 @@ input:checked + .slider-sm:before {
   border-color: rgba(239, 68, 68, 0.4);
 }
 
+.queue-search-wrap {
+  margin: 6px 0 8px 0;
+}
+
+.queue-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 11px;
+  padding: 6px 10px;
+  outline: none;
+  transition: var(--transition);
+}
+
+.queue-search-input:focus {
+  border-color: var(--accent-primary);
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.queue-search-input::placeholder {
+  color: #64748b;
+  font-size: 11px;
+}
+
+

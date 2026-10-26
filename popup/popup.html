@@ -187,6 +187,18 @@
         </label>
       </div>
 
+      <!-- Audio Track Preference (Multi-Audio Streams) -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Audio Track Preference</span>
+          <span class="feature-desc">Priority audio rendition when downloading multi-audio streams</span>
+        </div>
+        <select id="select-preferred-audio" class="fg-select-sm" title="Audio Track Preference">
+          <option value="dub" selected>English DUB</option>
+          <option value="sub">Japanese SUB / Original</option>
+        </select>
+      </div>
+
       <!-- Auto Play Next Episode Toggle & Delay -->
       <div class="feature-item">
         <div class="feature-info">
@@ -231,6 +243,18 @@
         </label>
       </div>
 
+      <!-- Download Episode Subtitles (.srt) Toggle -->
+      <div class="feature-item">
+        <div class="feature-info">
+          <span class="feature-name">Download Subtitle File (.srt)</span>
+          <span class="feature-desc">Optionally extracts clean softsubs alongside the episode video</span>
+        </div>
+        <label class="switch-toggle-sm" for="toggle-download-subtitles">
+          <input type="checkbox" id="toggle-download-subtitles">
+          <span class="slider-sm round"></span>
+        </label>
+      </div>
+
       <!-- Shortcuts Cheatsheet Card (Collapsible & Interactive) -->
       <div class="shortcuts-panel" id="shortcuts-panel" style="display: none;">
         <div class="shortcuts-header">
@@ -265,10 +289,15 @@
         <div class="queue-header-actions">
           <button type="button" class="btn-queue-action" id="btn-pause-all-queue" title="Pause all active & queued downloads">Pause All</button>
           <button type="button" class="btn-queue-action" id="btn-resume-all-queue" title="Resume all paused downloads">Resume All</button>
+          <button type="button" class="btn-queue-action" id="btn-export-queue" title="Export download history as JSON">Export JSON</button>
           <button type="button" class="btn-clear-queue" id="btn-clear-queue" title="Clear finished & failed downloads">
             Clear Finished
           </button>
         </div>
+      </div>
+
+      <div class="queue-search-wrap">
+        <input type="text" id="queue-search-input" class="queue-search-input" placeholder="🔍 Search anime title, episode, or quality...">
       </div>
 
       <div class="download-queue-container" id="download-queue-container">

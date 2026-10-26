@@ -7,7 +7,7 @@ FocusGuard began as an ad and redirect blocker for Aniwatch/HiAnime and has evol
 ## Milestones
 
 - **Milestone 1: Core Downloader, Anti-Redirect & Smooth Playback** (Completed v1.1.0)
-- **Milestone 2: Subtitle Extraction & Batch Season Downloads** (Upcoming v1.2.0)
+- **Milestone 2: Subtitle Extraction & Batch Season Downloads** (Completed v1.2.0)
 
 ## Phases
 
@@ -20,11 +20,11 @@ FocusGuard began as an ad and redirect blocker for Aniwatch/HiAnime and has evol
 - [x] **Phase 5: Player Playback Crash Prevention & Adaptive Concurrency** - Adaptive worker throttling during playback, socket yielding, off-thread base64 decoding, and stall recovery watchdog.
 - [x] **Phase 6: Audio Retention, Multi-Track fMP4 Remuxing & Seek Smoothness** - Separate `#EXT-X-MEDIA:TYPE=AUDIO` parsing, DUB prioritization, fMP4 audio+video combining, and exact `trun.data_offset` calculation for glitch-free scrubbing.
 
-### Milestone 2: Subtitles & Batch Downloading (Upcoming v1.2.0)
+### Milestone 2: Subtitles & Batch Downloading (Delivered & Verified v1.2.0)
 
-- [ ] **Phase 7: Subtitle Extraction & Companion Export** - Parse `#EXT-X-MEDIA:TYPE=SUBTITLES`, fetch WebVTT/SRT chunks, convert to `.srt`, and export alongside video.
+- [x] **Phase 7: Subtitle Extraction & Companion Export** - Parse `#EXT-X-MEDIA:TYPE=SUBTITLES`, fetch WebVTT/SRT chunks, convert to `.srt`, and export alongside video.
 - [x] **Phase 8: Batch & Whole-Season Download Engine** - Episode drawer scraping, bulk queueing, range filtering, FIFO concurrency, and popup batch controls.
-- [ ] **Phase 9: Enhanced Popup Dashboard & Audio Track Switcher** - Search and filter downloads, manual audio rendition selector, and queue history export.
+- [x] **Phase 9: Enhanced Popup Dashboard & Audio Track Switcher** - Search and filter downloads, manual audio rendition selector, and queue history export.
 
 ## Phase Details
 

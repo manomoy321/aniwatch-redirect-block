@@ -30,6 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const selectNextDelay = document.getElementById('select-next-delay');
   const toggleSmoothPlayback = document.getElementById('toggle-smooth-playback');
   const toggleDownloadMetadata = document.getElementById('toggle-download-metadata');
+  const toggleDownloadSubtitles = document.getElementById('toggle-download-subtitles');
+  const selectPreferredAudio = document.getElementById('select-preferred-audio');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
 
@@ -51,7 +53,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoSelectEng: true,
     nextEpisodeDelay: 0,
     enableSmoothPlayback: true,
-    enableDownloadMetadata: false
+    enableDownloadMetadata: false,
+    enableDownloadSubtitles: false,
+    preferredAudioLanguage: 'dub'
   };
 
   // 1. Identify active tab domain
@@ -82,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
       'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
       'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableAutoSelectEng', 'nextEpisodeDelay',
-      'enableSmoothPlayback', 'enableDownloadMetadata'
+      'enableSmoothPlayback', 'enableDownloadMetadata', 'enableDownloadSubtitles', 'preferredAudioLanguage'
     ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
@@ -103,6 +107,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.nextEpisodeDelay !== undefined) appState.nextEpisodeDelay = Number(data.nextEpisodeDelay) || 0;
       if (data.enableSmoothPlayback !== undefined) appState.enableSmoothPlayback = data.enableSmoothPlayback;
       if (data.enableDownloadMetadata !== undefined) appState.enableDownloadMetadata = data.enableDownloadMetadata;
+      if (data.enableDownloadSubtitles !== undefined) appState.enableDownloadSubtitles = data.enableDownloadSubtitles;
+      if (data.preferredAudioLanguage !== undefined) appState.preferredAudioLanguage = data.preferredAudioLanguage;
 
       renderUI();
     }
@@ -157,6 +163,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (selectNextDelay) selectNextDelay.value = String(appState.nextEpisodeDelay);
     if (toggleSmoothPlayback) toggleSmoothPlayback.checked = appState.enableSmoothPlayback;
     if (toggleDownloadMetadata) toggleDownloadMetadata.checked = appState.enableDownloadMetadata;
+    if (toggleDownloadSubtitles) toggleDownloadSubtitles.checked = appState.enableDownloadSubtitles;
+    if (selectPreferredAudio) selectPreferredAudio.value = appState.preferredAudioLanguage || 'dub';
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -276,6 +284,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  if (toggleDownloadSubtitles) {
+    toggleDownloadSubtitles.addEventListener('change', () => {
+      appState.enableDownloadSubtitles = toggleDownloadSubtitles.checked;
+      chrome.storage.local.set({ enableDownloadSubtitles: appState.enableDownloadSubtitles });
+    });
+  }
+
+  if (selectPreferredAudio) {
+    selectPreferredAudio.addEventListener('change', () => {
+      appState.preferredAudioLanguage = selectPreferredAudio.value;
+      chrome.storage.local.set({ preferredAudioLanguage: appState.preferredAudioLanguage });
+    });
+  }
+
 
   // Handle interactive shortcut row clicks in popup UI
   const shortcutRows = document.querySelectorAll('.shortcut-row.interactive');
@@ -352,6 +374,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnClearQueue = document.getElementById('btn-clear-queue');
   const btnPauseAllQueue = document.getElementById('btn-pause-all-queue');
   const btnResumeAllQueue = document.getElementById('btn-resume-all-queue');
+  const btnExportQueue = document.getElementById('btn-export-queue');
+  const queueSearchInput = document.getElementById('queue-search-input');
   const queueEmptyState = document.getElementById('queue-empty-state');
   const queueItemsList = document.getElementById('queue-items-list');
 
@@ -396,15 +420,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       queueCountBadge.classList.remove('has-active');
     }
 
-    if (currentQueue.length === 0) {
-      if (queueEmptyState) queueEmptyState.style.display = 'flex';
+    const searchTerm = (queueSearchInput && queueSearchInput.value)
+      ? queueSearchInput.value.trim().toLowerCase()
+      : '';
+
+    const displayedJobs = searchTerm
+      ? currentQueue.filter(job => {
+          const t = (job.title || '').toLowerCase();
+          const f = (job.filename || '').toLowerCase();
+          const q = (job.quality || '').toLowerCase();
+          const ep = (job.episodeNum !== undefined ? String(job.episodeNum) : '').toLowerCase();
+          return t.includes(searchTerm) || f.includes(searchTerm) || q.includes(searchTerm) || ep.includes(searchTerm);
+        })
+      : currentQueue;
+
+    if (displayedJobs.length === 0) {
+      if (queueEmptyState) {
+        queueEmptyState.style.display = 'flex';
+        const emptyMsg = queueEmptyState.querySelector('span:first-of-type');
+        if (emptyMsg) {
+          emptyMsg.textContent = searchTerm ? 'No matching downloads found' : 'Download queue is empty';
+        }
+      }
       queueItemsList.innerHTML = '';
       return;
     }
 
     if (queueEmptyState) queueEmptyState.style.display = 'none';
 
-    queueItemsList.innerHTML = currentQueue.map(job => {
+    queueItemsList.innerHTML = displayedJobs.map(job => {
       const pct = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
       const isComplete = job.status === 'completed';
       const isFailed = job.status === 'failed';
@@ -548,6 +592,37 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderDownloadQueue(res.queue);
         }
       });
+    });
+  }
+
+  // Export download queue history as JSON
+  if (btnExportQueue) {
+    btnExportQueue.addEventListener('click', () => {
+      try {
+        const historyData = JSON.stringify(currentQueue, null, 2);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `focusguard-download-history-${dateStr}.json`;
+        const blob = new Blob([historyData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          a.remove();
+          URL.revokeObjectURL(url);
+        }, 1200);
+      } catch (err) {
+        console.warn('[FocusGuard] Export queue error:', err);
+      }
+    });
+  }
+
+  // Live filter queue on search typing
+  if (queueSearchInput) {
+    queueSearchInput.addEventListener('input', () => {
+      renderDownloadQueue(currentQueue);
     });
   }
 

@@ -39,7 +39,9 @@ chrome.runtime.onInstalled.addListener(() => {
       nextEpisodeDelay: res.nextEpisodeDelay !== undefined ? res.nextEpisodeDelay : 0,
       downloadQueue: Array.isArray(res.downloadQueue) ? res.downloadQueue : [],
       downloadSettings: res.downloadSettings || { maxConcurrent: 2 },
-      enableDownloadMetadata: res.enableDownloadMetadata !== undefined ? res.enableDownloadMetadata : false
+      enableDownloadMetadata: res.enableDownloadMetadata !== undefined ? res.enableDownloadMetadata : false,
+      enableDownloadSubtitles: res.enableDownloadSubtitles !== undefined ? res.enableDownloadSubtitles : false,
+      preferredAudioLanguage: res.preferredAudioLanguage || 'dub'
     };
     chrome.storage.local.set(defaults);
   });

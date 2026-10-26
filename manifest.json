@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aniwatch Episode Downloader & Redirect Blocker - FocusGuard",
   "short_name": "Aniwatch Downloader",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Aniwatch Episode Downloader - Download anime episodes in 1080p, 720p, and 480p from Aniwatch and HiAnime. Blocks redirects, auto-selects English DUB, skips intros, and locks tab focus.",
   "permissions": [
     "storage",

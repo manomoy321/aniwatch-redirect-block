@@ -19,6 +19,8 @@
     enableAutoSelectEng: true,
     enableSmoothPlayback: true,
     enableDownloadMetadata: false,
+    enableDownloadSubtitles: false,
+    preferredAudioLanguage: 'dub',
     preferredServerCategory: 'dub', // 'dub' | 'sub'
     preferredServerName: 'vidsrc',   // e.g. 'vidsrc', 'megacloud'
     skipIntroSeconds: 85,
@@ -119,6 +121,8 @@
         'enableAutoSelectEng',
         'enableSmoothPlayback',
         'enableDownloadMetadata',
+        'enableDownloadSubtitles',
+        'preferredAudioLanguage',
         'preferredServerCategory',
         'preferredServerName',
         'skipIntroSeconds',
@@ -137,6 +141,8 @@
         if (res.enableAutoSelectEng !== undefined) playerSettings.enableAutoSelectEng = res.enableAutoSelectEng;
         if (res.enableSmoothPlayback !== undefined) playerSettings.enableSmoothPlayback = res.enableSmoothPlayback;
         if (res.enableDownloadMetadata !== undefined) playerSettings.enableDownloadMetadata = res.enableDownloadMetadata;
+        if (res.enableDownloadSubtitles !== undefined) playerSettings.enableDownloadSubtitles = res.enableDownloadSubtitles;
+        if (res.preferredAudioLanguage) playerSettings.preferredAudioLanguage = res.preferredAudioLanguage;
         if (res.preferredServerCategory) playerSettings.preferredServerCategory = res.preferredServerCategory;
         if (res.preferredServerName) playerSettings.preferredServerName = res.preferredServerName;
         if (res.skipIntroSeconds !== undefined) playerSettings.skipIntroSeconds = Number(res.skipIntroSeconds) || 85;
@@ -1183,6 +1189,9 @@
       if (preferDub) {
         if (a.isDub && !b.isDub) return -1;
         if (!a.isDub && b.isDub) return 1;
+      } else {
+        if (!a.isDub && b.isDub) return -1;
+        if (a.isDub && !b.isDub) return 1;
       }
       if (a.isDefault && !b.isDefault) return -1;
       if (!a.isDefault && b.isDefault) return 1;
@@ -1190,6 +1199,125 @@
     });
 
     return renditions;
+  }
+
+  // Extracts subtitle renditions declared via #EXT-X-MEDIA:TYPE=SUBTITLES from master HLS playlist
+  function extractSubtitleRenditions(playlistText, baseUrl) {
+    if (!playlistText || !playlistText.includes('#EXT-X-MEDIA')) return [];
+    const lines = playlistText.split('\n');
+    const renditions = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith('#EXT-X-MEDIA:') && /TYPE=SUBTITLES/i.test(line)) {
+        const uriMatch = line.match(/URI=["']([^"']+)["']/i);
+        if (!uriMatch) continue;
+        const rawUri = uriMatch[1];
+        let url = rawUri;
+        try {
+          url = new URL(rawUri, baseUrl).href;
+        } catch (e) {}
+
+        const groupIdMatch = line.match(/GROUP-ID=["']([^"']+)["']/i);
+        const nameMatch = line.match(/NAME=["']([^"']+)["']/i);
+        const langMatch = line.match(/LANGUAGE=["']([^"']+)["']/i);
+        const isDefault = /DEFAULT=YES/i.test(line);
+        const isAutoSelect = /AUTOSELECT=YES/i.test(line);
+        const isForced = /FORCED=YES/i.test(line);
+        const name = nameMatch ? nameMatch[1] : 'Subtitles';
+        const language = langMatch ? langMatch[1] : 'en';
+
+        renditions.push({
+          url,
+          groupId: groupIdMatch ? groupIdMatch[1] : '',
+          name,
+          language,
+          isDefault,
+          isAutoSelect,
+          isForced
+        });
+      }
+    }
+    return renditions;
+  }
+
+  // Converts WebVTT content to standard SubRip (.srt) format
+  function convertVttToSrt(vttContent) {
+    if (!vttContent || typeof vttContent !== 'string') return '';
+    const raw = vttContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = raw.split('\n');
+    const cues = [];
+    let currentCue = null;
+    let inHeader = true;
+
+    const timestampRegex = /(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})/;
+
+    function formatTime(hh, mm, ss, ms) {
+      const h = String(hh !== undefined ? hh : 0).padStart(2, '0');
+      const m = String(mm).padStart(2, '0');
+      const s = String(ss).padStart(2, '0');
+      const milli = String(ms).padEnd(3, '0').slice(0, 3);
+      return `${h}:${m}:${s},${milli}`;
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      if (inHeader) {
+        if (/^WEBVTT/i.test(line) || /^Kind:/i.test(line) || /^Language:/i.test(line) || /^X-TIMESTAMP-MAP/i.test(line)) {
+          continue;
+        }
+        if (line.startsWith('NOTE') || line.startsWith('STYLE') || line.startsWith('REGION')) {
+          while (i < lines.length && lines[i].trim() !== '') i++;
+          continue;
+        }
+        if (line === '') continue;
+        inHeader = false;
+      }
+
+      const match = line.match(timestampRegex);
+      if (match) {
+        if (currentCue && currentCue.text.length > 0) {
+          cues.push(currentCue);
+        }
+        const startStr = formatTime(match[1], match[2], match[3], match[4]);
+        const endStr = formatTime(match[5], match[6], match[7], match[8]);
+        currentCue = {
+          start: startStr,
+          end: endStr,
+          text: []
+        };
+        continue;
+      }
+
+      if (line === '') {
+        if (currentCue && currentCue.text.length > 0) {
+          cues.push(currentCue);
+          currentCue = null;
+        }
+        continue;
+      }
+
+      if (currentCue) {
+        // Strip WebVTT formatting tags and cue settings
+        const cleanLine = line.replace(/<[^>]+>/g, '').trim();
+        if (cleanLine) {
+          currentCue.text.push(cleanLine);
+        }
+      }
+    }
+
+    if (currentCue && currentCue.text.length > 0) {
+      cues.push(currentCue);
+    }
+
+    const srtBlocks = cues.map((cue, index) => {
+      const num = index + 1;
+      const timing = `${cue.start} --> ${cue.end}`;
+      const text = cue.text.join('\n');
+      return `${num}\n${timing}\n${text}`;
+    });
+
+    return srtBlocks.join('\n\n') + (srtBlocks.length > 0 ? '\n' : '');
   }
 
   // Discovers and filters ONLY the qualities that actually exist on the player control or stream
@@ -1524,6 +1652,9 @@
     });
 
     host.appendChild(btn);
+    try {
+      mountAudioTrackSwitcher(host);
+    } catch (e) {}
 
     const overlayLayer = container.querySelector('#player-overlay-actions, .jw-overlays, .vjs-custom-overlay');
     if (overlayLayer) {
@@ -1904,12 +2035,69 @@
     return modalBackdrop;
   }
 
+  // 3.7 Audio Track Switcher (Player HUD & Preference Selector)
+  function mountAudioTrackSwitcher(targetContainer, renditions = []) {
+    const doc = (targetContainer && targetContainer.ownerDocument) ? targetContainer.ownerDocument : (typeof document !== 'undefined' ? document : null);
+    if (!doc || typeof doc.querySelector !== 'function') return null;
+
+    const host = (typeof doc.getElementById === 'function')
+      ? (doc.getElementById('focusguard-download-btn-host') || targetContainer)
+      : (doc.querySelector('#focusguard-download-btn-host') || targetContainer);
+    if (!host) return null;
+
+    const existing = (typeof doc.getElementById === 'function')
+      ? doc.getElementById('focusguard-audio-switcher-btn')
+      : doc.querySelector('#focusguard-audio-switcher-btn');
+    if (existing) {
+      if (Array.isArray(renditions) && renditions.length > 0) {
+        existing.__fg_renditions__ = renditions;
+      }
+      return existing;
+    }
+
+    if (typeof doc.createElement !== 'function') return null;
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.id = 'focusguard-audio-switcher-btn';
+    btn.className = 'fg-audio-switcher-btn';
+    btn.__fg_renditions__ = Array.isArray(renditions) ? renditions : [];
+
+    const isDub = (playerSettings.preferredAudioLanguage || 'dub').toLowerCase().includes('dub');
+    btn.innerHTML = `<span>🔊</span><span class="fg-audio-label">${isDub ? 'Audio: DUB' : 'Audio: SUB'}</span>`;
+    btn.title = 'Switch Audio Track (English DUB / Japanese SUB)';
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const current = (playerSettings.preferredAudioLanguage || 'dub').toLowerCase();
+      const nextLang = current === 'dub' ? 'sub' : 'dub';
+      playerSettings.preferredAudioLanguage = nextLang;
+
+      const labelEl = btn.querySelector('.fg-audio-label');
+      if (labelEl) {
+        labelEl.textContent = nextLang === 'dub' ? 'Audio: DUB' : 'Audio: SUB';
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ preferredAudioLanguage: nextLang });
+      }
+
+      if (typeof showHud === 'function') {
+        showHud('🔊', `Audio: ${nextLang === 'dub' ? 'English DUB' : 'Japanese SUB'}`);
+      }
+    });
+
+    host.appendChild(btn);
+    return btn;
+  }
+
   // Trigger file download via chrome.downloads or synthetic anchor fallback
   function triggerFileSave(target, filename) {
     if (!target) return;
 
     let cleanFilename = filename ? String(filename).trim() : 'video.mp4';
-    if (cleanFilename.toLowerCase().endsWith('.json') || cleanFilename.toLowerCase().endsWith('.nfo') || cleanFilename.toLowerCase().endsWith('.txt')) {
+    if (cleanFilename.toLowerCase().endsWith('.json') || cleanFilename.toLowerCase().endsWith('.nfo') || cleanFilename.toLowerCase().endsWith('.txt') || cleanFilename.toLowerCase().endsWith('.srt') || cleanFilename.toLowerCase().endsWith('.vtt')) {
       // Preserve companion metadata and subtitle extensions
     } else {
       cleanFilename = cleanFilename.replace(/\.(m4s|ts|m3u8|mpd)$/i, '');
@@ -4015,6 +4203,71 @@
     }
   }
 
+  // Downloads episode softsubs as .srt alongside video when opt-in enabled
+  async function downloadEpisodeSubtitleFile(meta = {}, playlistTextOrSubContent = '', baseM3u8Url = '') {
+    try {
+      if (!playlistTextOrSubContent) return { success: false, error: 'No playlist content available' };
+
+      let srtContent = '';
+
+      if (typeof playlistTextOrSubContent === 'string' && playlistTextOrSubContent.includes('#EXT-X-MEDIA') && /TYPE=SUBTITLES/i.test(playlistTextOrSubContent)) {
+        const subRenditions = extractSubtitleRenditions(playlistTextOrSubContent, baseM3u8Url);
+        if (!subRenditions || subRenditions.length === 0) {
+          return { success: false, error: 'No subtitle renditions found' };
+        }
+
+        // Prioritize English subtitle, default, or first available
+        let chosenSub = subRenditions.find(s => /en|eng|english/i.test(s.name) || /en/i.test(s.language));
+        if (!chosenSub) chosenSub = subRenditions.find(s => s.isDefault) || subRenditions[0];
+        if (!chosenSub || !chosenSub.url) return { success: false, error: 'No subtitle URL' };
+
+        const subRes = await fetchResourceSafe(chosenSub.url, { embedUrl: baseM3u8Url });
+        if (!subRes) return { success: false, error: 'Failed to fetch subtitle resource' };
+
+        if (typeof subRes === 'string') {
+          if (subRes.includes('#EXTM3U')) {
+            const subSegments = parseHlsSegments(subRes, chosenSub.url);
+            if (subSegments.segments && subSegments.segments.length > 0) {
+              let combinedVtt = '';
+              for (const seg of subSegments.segments) {
+                const segText = await fetchResourceSafe(seg.url, { embedUrl: chosenSub.url });
+                if (typeof segText === 'string') {
+                  combinedVtt += segText + '\n';
+                }
+              }
+              srtContent = convertVttToSrt(combinedVtt);
+            } else {
+              srtContent = convertVttToSrt(subRes);
+            }
+          } else {
+            srtContent = convertVttToSrt(subRes);
+          }
+        }
+      } else if (typeof playlistTextOrSubContent === 'string' && (playlistTextOrSubContent.startsWith('WEBVTT') || playlistTextOrSubContent.includes('-->'))) {
+        srtContent = convertVttToSrt(playlistTextOrSubContent);
+      }
+
+      if (!srtContent || !srtContent.trim()) {
+        return { success: false, error: 'Empty subtitle content after conversion' };
+      }
+
+      let baseName = 'episode';
+      if (meta && meta.baseName) {
+        baseName = meta.baseName;
+      } else if (meta && meta.filename) {
+        baseName = meta.filename.replace(/\.(mp4|ts|m4s|json|srt)$/i, '');
+      }
+
+      const srtFilename = `${baseName}.srt`;
+      const srtBlob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+      triggerFileSave(srtBlob, srtFilename);
+      return { success: true, filename: srtFilename, content: srtContent };
+    } catch (err) {
+      console.warn('[FocusGuard] downloadEpisodeSubtitleFile warning:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
   // Helper to parse segments and initialization MAP from HLS media playlists
   function parseHlsSegments(content, baseUrl) {
     if (!content) return { segments: [], initSegmentUrl: null, initByteRange: null };
@@ -4149,7 +4402,10 @@
 
     if (playlistContent && playlistContent.includes('#EXT-X-STREAM-INF')) {
       // Check for separate audio renditions in master playlist
-      const audioRenditions = extractAudioRenditions(playlistContent, m3u8Url, playerSettings.preferDub);
+      const preferDub = (playerSettings.preferredAudioLanguage !== undefined)
+        ? (playerSettings.preferredAudioLanguage === 'dub')
+        : (playerSettings.preferDub !== undefined ? playerSettings.preferDub : true);
+      const audioRenditions = extractAudioRenditions(playlistContent, m3u8Url, preferDub);
       if (audioRenditions && audioRenditions.length > 0) {
         const chosenAudio = audioRenditions[0];
         if (chosenAudio && chosenAudio.url) {
@@ -4362,6 +4618,7 @@
         blob.streamInfo = conversionResult.streamInfo;
         blob.metadata = conversionResult.metadata;
         blob.filename = conversionResult.filename || filename;
+        blob.playlistContent = playlistContent;
       } catch (e) {}
       // Clear segment buffers immediately to free up memory for continuous downloads
       videoBuffers.length = 0;
@@ -4629,6 +4886,14 @@
           if (playerSettings && playerSettings.enableDownloadMetadata) {
             try {
               downloadEpisodeMetadataFile(meta, (blobResult && blobResult.streamInfo) || {});
+            } catch (e) {}
+          }
+
+          // Only save companion subtitle file (.srt) if explicitly opted-in by user
+          if (playerSettings && playerSettings.enableDownloadSubtitles) {
+            try {
+              const subPlaylist = cachedPlaylistText || (blobResult && blobResult.playlistContent);
+              downloadEpisodeSubtitleFile(meta, subPlaylist, m3u8Url);
             } catch (e) {}
           }
 
@@ -6625,6 +6890,10 @@
     window.__focusguard_queue_batch_episodes__ = queueBatchEpisodes;
     window.__focusguard_mount_batch_btn__ = mountBatchDownloadButton;
     window.__focusguard_open_batch_modal__ = openBatchModal;
+    window.__focusguard_extract_subtitle_renditions__ = extractSubtitleRenditions;
+    window.__focusguard_convert_vtt_to_srt__ = convertVttToSrt;
+    window.__focusguard_download_subtitle_file__ = downloadEpisodeSubtitleFile;
+    window.__focusguard_mount_audio_track_switcher__ = mountAudioTrackSwitcher;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -6672,7 +6941,11 @@
       filterEpisodeRange,
       queueBatchEpisodes,
       mountBatchDownloadButton,
-      openBatchModal
+      openBatchModal,
+      extractSubtitleRenditions,
+      convertVttToSrt,
+      downloadEpisodeSubtitleFile,
+      mountAudioTrackSwitcher
     };
   }
 })();
