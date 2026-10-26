@@ -5921,7 +5921,7 @@
       if (window === window.top) {
         try {
           const topMeta = getEpisodeMetadata(document, data.quality);
-          if (topMeta && topMeta.animeTitle) {
+          if (topMeta && topMeta.animeTitle && !finalFilename.toLowerCase().endsWith('.json')) {
             if (/^(?:Episode\s*\d+|Video)/i.test(finalFilename) || !finalFilename.includes(topMeta.animeTitle)) {
               finalFilename = topMeta.filename;
             }
