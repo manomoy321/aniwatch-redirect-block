@@ -18,6 +18,7 @@
     enableAutoSkipOutro: true,
     enableAutoSelectEng: true,
     enableSmoothPlayback: true,
+    enableDownloadMetadata: false,
     preferredServerCategory: 'dub', // 'dub' | 'sub'
     preferredServerName: 'vidsrc',   // e.g. 'vidsrc', 'megacloud'
     skipIntroSeconds: 85,
@@ -117,6 +118,7 @@
         'enableAutoSkipOutro',
         'enableAutoSelectEng',
         'enableSmoothPlayback',
+        'enableDownloadMetadata',
         'preferredServerCategory',
         'preferredServerName',
         'skipIntroSeconds',
@@ -134,6 +136,7 @@
         if (res.enableAutoSkipOutro !== undefined) playerSettings.enableAutoSkipOutro = res.enableAutoSkipOutro;
         if (res.enableAutoSelectEng !== undefined) playerSettings.enableAutoSelectEng = res.enableAutoSelectEng;
         if (res.enableSmoothPlayback !== undefined) playerSettings.enableSmoothPlayback = res.enableSmoothPlayback;
+        if (res.enableDownloadMetadata !== undefined) playerSettings.enableDownloadMetadata = res.enableDownloadMetadata;
         if (res.preferredServerCategory) playerSettings.preferredServerCategory = res.preferredServerCategory;
         if (res.preferredServerName) playerSettings.preferredServerName = res.preferredServerName;
         if (res.skipIntroSeconds !== undefined) playerSettings.skipIntroSeconds = Number(res.skipIntroSeconds) || 85;
@@ -871,15 +874,15 @@
         const dataEl = document.getElementById('__fg_stream_data__');
         if (dataEl && dataEl.textContent) {
           const payload = JSON.parse(dataEl.textContent);
-          // Prioritize direct mp4 if available
-          if (payload.mp4Stream && !isSegmentChunkUrl(payload.mp4Stream)) {
-            return payload.mp4Stream;
-          }
+          // Prioritize current activeStream detected by sniffer
           if (payload.activeStream && !isSegmentChunkUrl(payload.activeStream)) {
             return payload.activeStream;
           }
           if (payload.hlsStream && !isSegmentChunkUrl(payload.hlsStream)) {
             return payload.hlsStream;
+          }
+          if (payload.mp4Stream && !isSegmentChunkUrl(payload.mp4Stream)) {
+            return payload.mp4Stream;
           }
         }
       }
@@ -1713,7 +1716,7 @@
               URL.revokeObjectURL(url);
             }
           } catch (e) {}
-        }, 45000);
+        }, 12000);
       }
     } catch (err) {
       console.error('[FocusGuard] saveBlobDirectlyOrDelegate error:', err);
@@ -1765,7 +1768,8 @@
     return bytes.buffer;
   }
 
-  // Fetch stream resource safely using background proxy to eliminate CDN HTTP 403 Forbidden
+  // Fetch stream resource safely: attempts direct fetch first (leveraging declarativeNetRequest headers),
+  // and falls back gracefully to background proxy to guarantee zero HTTP 403 Forbidden without memory bloat.
   async function fetchResourceSafe(url, embedUrl = null, asBinary = false, byteRange = null) {
     let effectiveEmbed = embedUrl || detectedEmbedUrl;
     if (!effectiveEmbed) {
@@ -1780,6 +1784,33 @@
     }
     if (!effectiveEmbed) effectiveEmbed = window.location.href;
 
+    // Fast-path: Direct fetch attempt (bypasses IPC, avoids base64 memory overhead, DNR rules attach headers)
+    if (typeof fetch === 'function') {
+      const fetchOpts = {};
+      if (byteRange) {
+        fetchOpts.headers = { 'Range': `bytes=${byteRange}` };
+      }
+      const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      let timer = null;
+      if (controller) {
+        fetchOpts.signal = controller.signal;
+        timer = setTimeout(() => {
+          try { controller.abort(); } catch (e) {}
+        }, 15000);
+      }
+      try {
+        const res = await fetch(url, fetchOpts);
+        if (res && res.ok) {
+          return asBinary ? await res.arrayBuffer() : await res.text();
+        }
+      } catch (directErr) {
+        // Direct fetch failed or restricted by CORS; fallback to background proxy below
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    // Resilient fallback: Background proxy via service worker
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
       try {
         const res = await new Promise((resolve) => {
@@ -1809,26 +1840,7 @@
       } catch (err) {}
     }
 
-    // Direct fetch fallback with AbortController timeout
-    const fetchOpts = {};
-    if (byteRange) {
-      fetchOpts.headers = { 'Range': `bytes=${byteRange}` };
-    }
-    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    let timer = null;
-    if (controller) {
-      fetchOpts.signal = controller.signal;
-      timer = setTimeout(() => {
-        try { controller.abort(); } catch (e) {}
-      }, 20000);
-    }
-    try {
-      const res = await fetch(url, fetchOpts);
-      if (!res.ok) throw new Error(`Playlist HTTP ${res.status}`);
-      return asBinary ? await res.arrayBuffer() : await res.text();
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    throw new Error(`Failed to fetch stream resource: ${url}`);
   }
 
   // Toggles the quality selector popover directly beneath the download button
@@ -4044,11 +4056,13 @@
       );
       const blob = conversionResult.blob;
       try {
-        blob.objectUrl = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : '';
         blob.streamInfo = conversionResult.streamInfo;
         blob.metadata = conversionResult.metadata;
         blob.filename = conversionResult.filename || filename;
       } catch (e) {}
+      // Clear segment buffers immediately to free up memory for continuous downloads
+      videoBuffers.length = 0;
+      if (audioBuffers) audioBuffers.length = 0;
       return blob;
     } finally {
       if (hlsAbortController) {
@@ -4170,9 +4184,19 @@
 
     const displayTitle = meta.isEpisode ? `Episode ${meta.episodeNum}` : (meta.title || meta.animeTitle || 'Video');
 
-    // If an active stream download is already running in this tab, reject duplicate click
+    // If an active stream download is already running in this tab, queue subsequent requests
     if (isDownloading) {
-      showHud('⏳', 'Download already in progress...', { isDownload: true, duration: 2500 });
+      const reqEp = (meta && meta.episodeNum) || (customMeta && customMeta.episodeNum) || null;
+      const isAlreadyQueued = tabPendingHlsQueue.some(item => {
+        const iMeta = item.maybeMeta || (typeof item.qualityOrMeta === 'object' ? item.qualityOrMeta : null);
+        return iMeta && (iMeta.filename === meta.filename || (reqEp && iMeta.episodeNum === reqEp));
+      });
+      if (!isAlreadyQueued) {
+        tabPendingHlsQueue.push({ qualityOrMeta, maybeMeta, clickedVideo });
+        showHud('⏳', `Queued ${displayTitle} [${chosenQuality}] for continuous download...`, { isDownload: true, duration: 2500 });
+      } else {
+        showHud('⏳', `${displayTitle} is already in the download queue...`, { isDownload: true, duration: 2000 });
+      }
       return;
     }
 
@@ -4298,10 +4322,12 @@
           const finalSaveFilename = (blobResult && blobResult.filename) || meta.filename;
           triggerFileSave(blobResult, finalSaveFilename);
 
-          // Automatically save companion metadata file (.info.json) alongside video
-          try {
-            downloadEpisodeMetadataFile(meta, (blobResult && blobResult.streamInfo) || {});
-          } catch (e) {}
+          // Only save companion metadata file (.info.json) if explicitly opted-in by user
+          if (playerSettings && playerSettings.enableDownloadMetadata) {
+            try {
+              downloadEpisodeMetadataFile(meta, (blobResult && blobResult.streamInfo) || {});
+            } catch (e) {}
+          }
 
           if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
             chrome.runtime.sendMessage({

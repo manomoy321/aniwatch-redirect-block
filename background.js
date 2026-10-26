@@ -38,7 +38,8 @@ chrome.runtime.onInstalled.addListener(() => {
       seekSeconds: res.seekSeconds !== undefined ? res.seekSeconds : 5,
       nextEpisodeDelay: res.nextEpisodeDelay !== undefined ? res.nextEpisodeDelay : 0,
       downloadQueue: Array.isArray(res.downloadQueue) ? res.downloadQueue : [],
-      downloadSettings: res.downloadSettings || { maxConcurrent: 2 }
+      downloadSettings: res.downloadSettings || { maxConcurrent: 2 },
+      enableDownloadMetadata: res.enableDownloadMetadata !== undefined ? res.enableDownloadMetadata : false
     };
     chrome.storage.local.set(defaults);
   });
@@ -167,7 +168,8 @@ async function fetchWithRetry(url, options = {}) {
   const dedupeKey = deduplicate ? `${method}::${url}::${rangeHeader || ''}` : null;
 
   if (dedupeKey && inFlightRequests.has(dedupeKey)) {
-    return inFlightRequests.get(dedupeKey);
+    const origResp = await inFlightRequests.get(dedupeKey);
+    return (origResp && typeof origResp.clone === 'function') ? origResp.clone() : origResp;
   }
 
   const execute = async () => {
@@ -287,6 +289,15 @@ function persistQueue(immediate = false) {
   }
 
   const doSave = () => {
+    // Keep queue memory & storage lean: preserve active jobs and limit finished jobs
+    if (downloadQueue.length > 50) {
+      const active = downloadQueue.filter(j => ['queued', 'preparing', 'downloading', 'paused'].includes(j.status));
+      const finished = downloadQueue.filter(j => !['queued', 'preparing', 'downloading', 'paused'].includes(j.status));
+      if (finished.length > 25) {
+        downloadQueue = [...active, ...finished.slice(finished.length - 25)];
+      }
+    }
+
     const sanitized = downloadQueue.map(job => ({
       id: job.id,
       url: job.url,
@@ -1070,7 +1081,8 @@ async function clearStreamBypassHeaders() {
 
   if (streamBypassClearTimer) clearTimeout(streamBypassClearTimer);
   streamBypassClearTimer = setTimeout(async () => {
-    if (activeStreamBypassCount > 0) return;
+    const hasActiveDownloads = downloadQueue.some(j => j.status === 'downloading' || j.status === 'preparing');
+    if (hasActiveDownloads || activeStreamBypassCount > 0) return;
     if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) return;
     try {
       const ruleIdsToRemove = Array.from({ length: STREAM_BYPASS_MAX_RULES }, (_, i) => STREAM_BYPASS_RULE_ID + i);

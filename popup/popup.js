@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoSelectEng: true,
     nextEpisodeDelay: 0,
     enableSmoothPlayback: true,
-    enableDownloadMetadata: true
+    enableDownloadMetadata: false
   };
 
   // 1. Identify active tab domain
