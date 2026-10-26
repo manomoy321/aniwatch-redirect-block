@@ -4403,6 +4403,10 @@
     } finally {
       isDownloading = false;
       if (btn) btn.classList.remove('fg-downloading');
+      // Wipe episode caches after download completes so subsequent downloads fetch fresh streams & keys
+      cachedPlaylistUrl = null;
+      cachedPlaylistText = null;
+      hlsKeyCache.clear();
       // Prune any duplicate jobs that match the current download before taking the next item
       while (tabPendingHlsQueue.length > 0) {
         const candidate = tabPendingHlsQueue[0];
@@ -5018,12 +5022,41 @@
     activeVideo = null;
     detectedStreamUrl = null;
     detectedEmbedUrl = null;
+    cachedPlaylistUrl = null;
     cachedPlaylistText = null;
     cachedEpisodeMeta = null;
+    if (hlsKeyCache && typeof hlsKeyCache.clear === 'function') hlsKeyCache.clear();
+    if (recentSavedBlobs && typeof recentSavedBlobs.clear === 'function') recentSavedBlobs.clear();
+    if (recentAnchorDownloads && typeof recentAnchorDownloads.clear === 'function') recentAnchorDownloads.clear();
     dubEnforceAttempts = 0;
     playerErrorRecoveryCount = 0;
     userManuallySelectedCategory = null;
     isAutoRecovering = false;
+
+    // Invalidate stale DOM bridge elements and sessionStorage so next episode fetches fresh stream
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('fg_detected_stream_url');
+      }
+      if (typeof document !== 'undefined') {
+        const streamDataEl = document.getElementById('__fg_stream_data__');
+        if (streamDataEl) streamDataEl.textContent = '{}';
+        const playlistCacheEl = document.getElementById('__fg_playlist_cache__');
+        if (playlistCacheEl) playlistCacheEl.textContent = '';
+        if (document.documentElement) {
+          document.documentElement.removeAttribute('data-focusguard-active-stream');
+          document.documentElement.removeAttribute('data-focusguard-mp4-stream');
+          document.documentElement.removeAttribute('data-focusguard-hls-stream');
+          document.documentElement.removeAttribute('data-focusguard-embed-url');
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.__focusguard_active_stream__ = null;
+        window.__focusguard_mse_init_segment__ = null;
+        window.__focusguard_cached_playlist__ = null;
+      }
+    } catch (e) {}
+
     console.log('[FocusGuard] Episode change detected. Re-arming server continuity, wiping stale stream cache, and resetting recovery counters.');
 
     // Immediately update download badge with new episode number
