@@ -28,6 +28,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleAutoNext = document.getElementById('toggle-autonext');
   const toggleEng = document.getElementById('toggle-eng');
   const selectNextDelay = document.getElementById('select-next-delay');
+  const toggleSmoothPlayback = document.getElementById('toggle-smooth-playback');
+  const toggleDownloadMetadata = document.getElementById('toggle-download-metadata');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
 
@@ -47,7 +49,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoSkipIntro: true,
     enableAutoSkipOutro: true,
     enableAutoSelectEng: true,
-    nextEpisodeDelay: 0
+    nextEpisodeDelay: 0,
+    enableSmoothPlayback: true,
+    enableDownloadMetadata: true
   };
 
   // 1. Identify active tab domain
@@ -77,7 +81,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     [
       'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
       'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
-      'enableAutoSkipIntro', 'enableAutoSkipOutro'
+      'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableAutoSelectEng', 'nextEpisodeDelay',
+      'enableSmoothPlayback', 'enableDownloadMetadata'
     ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
@@ -96,6 +101,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
       if (data.enableAutoSelectEng !== undefined) appState.enableAutoSelectEng = data.enableAutoSelectEng;
       if (data.nextEpisodeDelay !== undefined) appState.nextEpisodeDelay = Number(data.nextEpisodeDelay) || 0;
+      if (data.enableSmoothPlayback !== undefined) appState.enableSmoothPlayback = data.enableSmoothPlayback;
+      if (data.enableDownloadMetadata !== undefined) appState.enableDownloadMetadata = data.enableDownloadMetadata;
 
       renderUI();
     }
@@ -148,6 +155,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
     if (toggleEng) toggleEng.checked = appState.enableAutoSelectEng;
     if (selectNextDelay) selectNextDelay.value = String(appState.nextEpisodeDelay);
+    if (toggleSmoothPlayback) toggleSmoothPlayback.checked = appState.enableSmoothPlayback;
+    if (toggleDownloadMetadata) toggleDownloadMetadata.checked = appState.enableDownloadMetadata;
 
     // Whitelist button state
     if (!currentHost || currentHost === 'browser_internal') {
@@ -250,6 +259,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     selectNextDelay.addEventListener('change', () => {
       appState.nextEpisodeDelay = Number(selectNextDelay.value) || 0;
       chrome.storage.local.set({ nextEpisodeDelay: appState.nextEpisodeDelay });
+    });
+  }
+
+  if (toggleSmoothPlayback) {
+    toggleSmoothPlayback.addEventListener('change', () => {
+      appState.enableSmoothPlayback = toggleSmoothPlayback.checked;
+      chrome.storage.local.set({ enableSmoothPlayback: appState.enableSmoothPlayback });
+    });
+  }
+
+  if (toggleDownloadMetadata) {
+    toggleDownloadMetadata.addEventListener('change', () => {
+      appState.enableDownloadMetadata = toggleDownloadMetadata.checked;
+      chrome.storage.local.set({ enableDownloadMetadata: appState.enableDownloadMetadata });
     });
   }
 
