@@ -576,7 +576,9 @@
       }
     }
 
-    if (!episodeNum && typeof window !== 'undefined' && window.location) {
+    const canUseWindowLocation = !targetDoc || (typeof document !== 'undefined' && targetDoc === document);
+
+    if (!episodeNum && canUseWindowLocation && typeof window !== 'undefined' && window.location) {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const epParam = urlParams.get('ep') || urlParams.get('episode') || urlParams.get('ep_number');
@@ -590,7 +592,7 @@
       } catch (e) {}
     }
 
-    if (!episodeNum && typeof window !== 'undefined' && window.location) {
+    if (!episodeNum && canUseWindowLocation && typeof window !== 'undefined' && window.location) {
       try {
         const pathMatch = window.location.pathname.match(/ep(?:isode)?[-_/](\d+)/i);
         if (pathMatch) {
@@ -615,9 +617,16 @@
     const titleSelectors = [
       '.film-name',
       'h2.film-name',
+      'h1.film-name',
       '#detail-page .heading-name',
       '.anime-title',
-      '.player-title'
+      '.player-title',
+      'h1.title',
+      '.video-title',
+      '.watch-title',
+      '.entry-title',
+      '#film-name',
+      '.dynamic-name'
     ];
     for (const sel of titleSelectors) {
       try {
@@ -632,6 +641,23 @@
           if (txt.length > 1) {
             animeTitle = txt;
             break;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Check breadcrumb items (common on anime sites: Home > Anime > Title > Episode)
+    if (!animeTitle) {
+      try {
+        const bc = targetDocToUse.querySelectorAll('.breadcrumb li, .breadcrumb-item, .breadcrumb a');
+        if (bc && bc.length >= 2) {
+          for (let i = bc.length - 1; i >= 0; i--) {
+            let bText = (bc[i].textContent || '').trim();
+            bText = bText.replace(/^Episode\s*\d+.*$/i, '').replace(/^[🎬▶️\s]+/u, '').trim();
+            if (bText && !/^(?:home|anime|watch|series|movie|tv|all episodes)$/i.test(bText) && bText.length > 1) {
+              animeTitle = bText;
+              break;
+            }
           }
         }
       } catch (e) {}
@@ -676,13 +702,27 @@
       } catch (e) {}
     }
 
+    // Check URL pathname (e.g. /watch/solo-leveling-season-2-18718)
+    if (!animeTitle && canUseWindowLocation && typeof window !== 'undefined' && window.location && window.location.pathname) {
+      try {
+        const path = window.location.pathname;
+        const m = path.match(/\/(?:watch|anime|videos?|film|series)\/([^\/?#]+)/i);
+        if (m) {
+          let slug = m[1].replace(/-\d+$/, '').replace(/-/g, ' ').trim();
+          if (slug.length > 1) {
+            animeTitle = slug.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+          }
+        }
+      } catch (e) {}
+    }
+
     // Fallback to document title cleaned of site names
     if (!animeTitle && targetDocToUse.title) {
       let cleanDocTitle = targetDocToUse.title
         .replace(/^Watch\s+/i, '')
         .replace(/\s+English Sub\/Dub.*$/i, '')
         .replace(/\s+online free.*$/i, '')
-        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream).*$/i, '')
+        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream|Anime).*$/i, '')
         .replace(/\s*[-–—|:]*\s*Episode\s+\d+.*$/i, '')
         .replace(/^[\s\-_–—|:]+|[\s\-_–—|:]+$/g, '')
         .trim();
@@ -693,7 +733,8 @@
 
     if (animeTitle) {
       animeTitle = animeTitle
-        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream).*$/i, '')
+        .replace(/^Watch\s+/i, '')
+        .replace(/\s*[-–—|]\s*(?:YouTube|Vimeo|Dailymotion|Facebook|Twitter|Twitch|TikTok|Reddit|HiAnime|Aniwatch|Zoro|Kaido|Gogoanime|Watch Anime|AnimeStream|Anime).*$/i, '')
         .replace(/\s*[-–—|:]*\s*Episode\s+\d+.*$/i, '')
         .replace(/^[\s\-_–—|:]+|[\s\-_–—|:]+$/g, '')
         .trim();
@@ -1346,9 +1387,21 @@
       <span class="fg-player-download-badge" id="fg-download-ep-badge">${badgeText}</span>
     `;
 
+    let lastDownloadClick = 0;
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      const now = Date.now();
+      if (now - lastDownloadClick < 1200) {
+        return; // Ignore rapid double clicks
+      }
+      lastDownloadClick = now;
+
+      if (isDownloading) {
+        showHud('⏳', 'Download already in progress...', { isDownload: true, duration: 2000 });
+        return;
+      }
 
       const v = (btn && btn.__fg_video__) || (host && host.__fg_video__) || activeVideo;
       const streamTarget = (typeof resolveActiveStreamUrl === 'function')
@@ -1507,9 +1560,43 @@
     }
   }
 
+  // Deduplication caches to eliminate duplicate downloads within rapid cooldown
+  const recentSavedBlobs = new Map();
+  function isRecentlySaved(key) {
+    const now = Date.now();
+    for (const [k, ts] of recentSavedBlobs.entries()) {
+      if (now - ts > 10000) recentSavedBlobs.delete(k);
+    }
+    if (recentSavedBlobs.has(key) && (now - recentSavedBlobs.get(key) < 5000)) {
+      return true;
+    }
+    recentSavedBlobs.set(key, now);
+    return false;
+  }
+
+  const recentAnchorDownloads = new Map();
+  function isRecentlyAnchorDownloaded(key) {
+    const now = Date.now();
+    for (const [k, ts] of recentAnchorDownloads.entries()) {
+      if (now - ts > 10000) recentAnchorDownloads.delete(k);
+    }
+    if (recentAnchorDownloads.has(key) && (now - recentAnchorDownloads.get(key) < 4000)) {
+      return true;
+    }
+    recentAnchorDownloads.set(key, now);
+    return false;
+  }
+
   // Delegates blob saving to top-level window if inside iframe, or downloads directly
   function saveBlobDirectlyOrDelegate(blob, filename) {
     if (!blob) return;
+
+    // Deduplication check: drop duplicate save requests within cooldown
+    const saveKey = filename || 'video.mp4';
+    if (isRecentlySaved(saveKey)) {
+      console.warn('[FocusGuard] Prevented duplicate blob save within cooldown for:', filename);
+      return;
+    }
 
     // If running inside a child frame / player iframe, delegate to top window so sandbox never blocks anchor download
     if (typeof window !== 'undefined' && window !== window.top) {
@@ -1544,6 +1631,12 @@
 
   function fallbackAnchorDownload(url, filename) {
     try {
+      const dlKey = filename || (String(url).slice(-32));
+      if (isRecentlyAnchorDownloaded(dlKey)) {
+        console.warn('[FocusGuard] Prevented duplicate anchor download within cooldown for:', filename);
+        return;
+      }
+
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
@@ -1748,6 +1841,10 @@
         e.preventDefault();
         e.stopPropagation();
         closeQualityPopover(popover);
+        if (isDownloading) {
+          showHud('⏳', 'Download already in progress...', { isDownload: true, duration: 2000 });
+          return;
+        }
         downloadActiveVideo(q, null, targetVideo);
       });
     });
@@ -2156,25 +2253,9 @@
 
     const displayTitle = meta.isEpisode ? `Episode ${meta.episodeNum}` : (meta.title || meta.animeTitle || 'Video');
 
-    // If an active stream download is already running in this tab, gracefully queue subsequent requests
+    // If an active stream download is already running in this tab, reject duplicate click
     if (isDownloading) {
-      tabPendingHlsQueue.push({ qualityOrMeta, maybeMeta, clickedVideo });
-      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({
-          action: 'queue_download',
-          job: {
-            title: displayTitle,
-            filename: meta.filename,
-            type: 'hls',
-            status: 'queued',
-            progress: 0,
-            quality: chosenQuality,
-            episodeNum: meta.episodeNum || null,
-            source: 'player_controller'
-          }
-        });
-      }
-      showHud('⏳', `Queued in download manager: ${meta.filename}`, { isDownload: true, duration: 2500 });
+      showHud('⏳', 'Download already in progress...', { isDownload: true, duration: 2500 });
       return;
     }
 
@@ -2372,6 +2453,16 @@
     } finally {
       isDownloading = false;
       if (btn) btn.classList.remove('fg-downloading');
+      // Prune any duplicate jobs that match the current download before taking the next item
+      while (tabPendingHlsQueue.length > 0) {
+        const candidate = tabPendingHlsQueue[0];
+        const candMeta = candidate.maybeMeta || (typeof candidate.qualityOrMeta === 'object' ? candidate.qualityOrMeta : null);
+        if (candMeta && (candMeta.filename === meta.filename || (candMeta.episodeNum && candMeta.episodeNum === meta.episodeNum))) {
+          tabPendingHlsQueue.shift();
+        } else {
+          break;
+        }
+      }
       if (tabPendingHlsQueue.length > 0) {
         const nextJob = tabPendingHlsQueue.shift();
         setTimeout(() => {
@@ -3760,8 +3851,19 @@
 
     // Save blob delegated from child iframe to top-level window
     if (data.type === 'FOCUSGUARD_SAVE_BLOB' && data.blob) {
-      saveBlobDirectlyOrDelegate(data.blob, data.filename);
-      showHud('✅', `Downloaded: ${data.filename || 'Episode Video'}`, { isSuccess: true, duration: 3500 });
+      let finalFilename = data.filename || 'Episode_Video.mp4';
+      if (window === window.top) {
+        try {
+          const topMeta = getEpisodeMetadata(document, data.quality);
+          if (topMeta && topMeta.animeTitle) {
+            if (/^(?:Episode\s*\d+|Video)/i.test(finalFilename) || !finalFilename.includes(topMeta.animeTitle)) {
+              finalFilename = topMeta.filename;
+            }
+          }
+        } catch (e) {}
+      }
+      saveBlobDirectlyOrDelegate(data.blob, finalFilename);
+      showHud('✅', `Downloaded: ${finalFilename}`, { isSuccess: true, duration: 3500 });
     }
 
     // Progress notification from child iframe during HLS download
@@ -4152,7 +4254,13 @@
       parseHlsByteRange,
       formatDataSize,
       toggleQualityPopover,
-      resolveActiveStreamUrl
+      resolveActiveStreamUrl,
+      saveBlobDirectlyOrDelegate,
+      fallbackAnchorDownload,
+      isRecentlySaved,
+      isRecentlyAnchorDownloaded,
+      recentSavedBlobs,
+      recentAnchorDownloads
     };
   }
 })();

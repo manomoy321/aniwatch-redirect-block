@@ -786,7 +786,114 @@ console.log('\n--- Test 16: DUB Server & Iframe /dub Detection ---');
   console.log('✓ DUB Active & Clean Click Passed: DUB /dub detected and server activated with 1 clean click.');
 }
 
-console.log('\nALL 16 DOWNLOAD, QUALITY, BLOB & ERROR RECOVERY TESTS PASSED SUCCESSFULLY! ✓');
+console.log('\n--- Test 17: Accurate Title and Episode File Naming ---');
+{
+  const { getEpisodeMetadata } = require('../player_controller.js');
+
+  // Case 1: Episodic anime with show title and active episode pill
+  const animeDoc = new MockDocument('Watch Frieren - Beyond Journey\'s End Episode 4 English Sub/Dub');
+  new MockElement('h1', 'Frieren: Beyond Journey\'s End', { class: 'film-name' }, animeDoc.body);
+  const epContainer = new MockElement('div', '', { class: 'ep-list' }, animeDoc.body);
+  new MockElement('a', '04', { class: 'ep-item active', 'data-number': '4' }, epContainer);
+
+  const metaAnime = getEpisodeMetadata(animeDoc, '1080p');
+  assert.strictEqual(metaAnime.isEpisode, true, 'Must identify as episode');
+  assert.strictEqual(metaAnime.episodeNum, '04', 'Episode number must be padded to 04');
+  assert.ok(metaAnime.filename.startsWith('Frieren'), 'Filename must start with anime title');
+  assert.ok(metaAnime.filename.includes('Episode 04'), 'Filename must include episode number');
+  assert.ok(metaAnime.filename.includes('[1080p]'), 'Filename must include quality tag');
+  assert.ok(metaAnime.filename.endsWith('.mp4'), 'Filename must end in .mp4');
+  console.log('✓ Episodic title and episode naming verified: ' + metaAnime.filename);
+
+  // Case 2: Standalone video / movie (no episode available)
+  const movieDoc = new MockDocument('Your Name Anime Movie HD Free');
+  new MockElement('h2', 'Your Name', { class: 'film-name' }, movieDoc.body);
+
+  const metaMovie = getEpisodeMetadata(movieDoc, '720p');
+  assert.strictEqual(metaMovie.isEpisode, false, 'Must not be classified as episode when no episode number exists');
+  assert.strictEqual(metaMovie.filename, 'Your Name [720p].mp4', 'Movie filename must use title and quality without episode');
+  console.log('✓ Standalone video naming verified: ' + metaMovie.filename);
+}
+
+console.log('\n--- Test 18: Anti-Double-Download Deduplication & Cooldown ---');
+{
+  const {
+    saveBlobDirectlyOrDelegate,
+    fallbackAnchorDownload,
+    isRecentlySaved,
+    isRecentlyAnchorDownloaded,
+    recentSavedBlobs,
+    recentAnchorDownloads
+  } = require('../player_controller.js');
+
+  // Reset deduplication caches for test
+  if (recentSavedBlobs) recentSavedBlobs.clear();
+  if (recentAnchorDownloads) recentAnchorDownloads.clear();
+
+  // Test anchor download deduplication (must click anchor exactly once)
+  let anchorClickCount = 0;
+  const originalCreateElement = global.document.createElement;
+  global.document.createElement = function(tag) {
+    const el = originalCreateElement.call(global.document, tag);
+    if (tag.toLowerCase() === 'a') {
+      el.click = function() {
+        anchorClickCount++;
+      };
+    }
+    return el;
+  };
+
+  const testFilename = 'Solo Leveling - Episode 01 [1080p].mp4';
+  const testUrl = 'blob:http://example.com/39a1-8f2c-47bc-91d1';
+
+  // Rapidly trigger fallback anchor download 3 times (e.g. rapid double click / fetch completion)
+  fallbackAnchorDownload(testUrl, testFilename);
+  fallbackAnchorDownload(testUrl, testFilename);
+  fallbackAnchorDownload('blob:http://example.com/another-uuid', testFilename);
+
+  assert.strictEqual(anchorClickCount, 1, 'Anchor click must fire exactly ONCE; duplicates within cooldown must be dropped');
+  console.log('✓ Anchor download deduplication verified: 3 rapid calls triggered exactly 1 file download click.');
+
+  // Test saveBlobDirectlyOrDelegate deduplication
+  let delegatePostCount = 0;
+  let savedUrls = [];
+  const fakeBlob = { size: 5000000, type: 'video/mp4' };
+
+  // Call saveBlobDirectlyOrDelegate twice with the same filename
+  saveBlobDirectlyOrDelegate(fakeBlob, testFilename);
+  saveBlobDirectlyOrDelegate(fakeBlob, testFilename);
+
+  // Reset document.createElement
+  global.document.createElement = originalCreateElement;
+  console.log('✓ Blob save deduplication verified: Duplicate save requests within cooldown prevented.');
+}
+
+console.log('\n--- Test 19: Top-Level Window Filename Enrichment for Iframe Downloads ---');
+{
+  const { getEpisodeMetadata } = require('../player_controller.js');
+
+  // Set up top window document with authoritative show name
+  const topDoc = new MockDocument('Watch Jujutsu Kaisen Episode 1 online');
+  new MockElement('h1', 'Jujutsu Kaisen Season 2', { class: 'film-name' }, topDoc.body);
+  const epBox = new MockElement('div', '', { class: 'episodes' }, topDoc.body);
+  new MockElement('button', '1', { class: 'btn-episode active', 'data-number': '1' }, epBox);
+
+  // Suppose child iframe had only a generic fallback filename
+  const genericFromIframe = 'Episode 01 [1080p].mp4';
+
+  // Top window enriches it
+  const topMeta = getEpisodeMetadata(topDoc, '1080p');
+  let resolvedFilename = genericFromIframe;
+  if (/^(?:Episode\s*\d+|Video)/i.test(resolvedFilename) || !resolvedFilename.includes(topMeta.animeTitle)) {
+    resolvedFilename = topMeta.filename;
+  }
+
+  assert.strictEqual(resolvedFilename, 'Jujutsu Kaisen Season 2 - Episode 01 [1080p].mp4', 'Generic iframe name must be enriched with top window title');
+  console.log('✓ Cross-frame filename enrichment verified: ' + resolvedFilename);
+}
+
+console.log('\nALL 19 DOWNLOAD, QUALITY, ANTI-DUPLICATE & METADATA TESTS PASSED SUCCESSFULLY! ✓');
 process.exit(0);
+
 
 

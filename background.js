@@ -730,7 +730,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Download Queue Manager Handlers
   if (message.action === 'queue_download') {
-    const res = queueDownload(message);
+    const item = message.job || message;
+    const res = queueDownload(item);
     sendResponse(res);
     return true;
   }
@@ -802,37 +803,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         totalBytes: message.totalBytes || 0
       });
 
-      const downloadOptions = {
-        url: downloadUrl,
-        filename: downloadFilename,
-        saveAs: false,
-        conflictAction: 'uniquify'
-      };
-
-      if (message.embedUrl && (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://'))) {
-        downloadOptions.headers = [
-          { name: 'Referer', value: message.embedUrl }
-        ];
-      }
-
-      if (typeof chrome !== 'undefined' && chrome.downloads && chrome.downloads.download) {
-        chrome.downloads.download(downloadOptions, (downloadId) => {
-          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError) {
-            console.warn('[FocusGuard Background] Video download error:', chrome.runtime.lastError.message);
-            if (qRes && qRes.job) {
-              updateJobProgress({ jobId: qRes.job.id, status: 'failed', error: chrome.runtime.lastError.message });
-            }
-            sendResponse({ success: false, error: chrome.runtime.lastError.message, jobId: qRes && qRes.job ? qRes.job.id : null });
-          } else {
-            console.log('[FocusGuard Background] Download initiated successfully. ID:', downloadId, 'File:', downloadFilename);
-            if (qRes && qRes.job) {
-              updateJobProgress({ jobId: qRes.job.id, downloadId: downloadId, status: 'downloading' });
-            }
-            sendResponse({ success: true, downloadId: downloadId, jobId: qRes && qRes.job ? qRes.job.id : null });
-          }
-        });
+      if (qRes && qRes.job) {
+        if (qRes.job.status === 'failed') {
+          sendResponse({ success: false, error: qRes.job.error || 'Download failed', useFallback: true, jobId: qRes.job.id });
+        } else {
+          sendResponse({ success: true, downloadId: qRes.job.downloadId || 1, jobId: qRes.job.id });
+        }
       } else {
-        sendResponse({ success: false, error: 'chrome.downloads not supported on this platform', useFallback: true });
+        sendResponse({ success: false, error: 'Failed to queue download', useFallback: true });
       }
     } catch (e) {
       console.error('[FocusGuard Background] Download exception:', e);
