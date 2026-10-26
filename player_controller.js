@@ -267,9 +267,13 @@
 
     host.appendChild(badge);
 
-    requestAnimationFrame(() => {
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        badge.classList.add('fg-hud-visible');
+      });
+    } else {
       badge.classList.add('fg-hud-visible');
-    });
+    }
 
     hudTimer = setTimeout(() => {
       badge.classList.remove('fg-hud-visible');
@@ -419,6 +423,38 @@
         try { window.top.postMessage({ type: 'FOCUSGUARD_PLAYER_ERROR', errorCode: 'video_error' }, '*'); } catch (e) {}
       }
       handlePlayerErrorAutoRecovery();
+    });
+
+    // Playback stall & buffer underrun watchdog
+    let videoWaitingTimer = null;
+    video.addEventListener('waiting', () => {
+      if (isDownloading) {
+        if (videoWaitingTimer) clearTimeout(videoWaitingTimer);
+        videoWaitingTimer = setTimeout(() => {
+          if (!video.paused && !video.ended && video.readyState < 3) {
+            handlePlaybackStallRecovery(video);
+          }
+        }, 3500);
+      }
+    });
+
+    video.addEventListener('stalled', () => {
+      if (isDownloading) {
+        if (videoWaitingTimer) clearTimeout(videoWaitingTimer);
+        videoWaitingTimer = setTimeout(() => {
+          if (!video.paused && !video.ended && video.readyState < 3) {
+            handlePlaybackStallRecovery(video);
+          }
+        }, 3500);
+      }
+    });
+
+    video.addEventListener('playing', () => {
+      if (videoWaitingTimer) {
+        clearTimeout(videoWaitingTimer);
+        videoWaitingTimer = null;
+      }
+      stallDurationSeconds = 0;
     });
 
     // Hook JWPlayer error events if present
@@ -1652,6 +1688,32 @@
     } catch (e) {}
   }
 
+  // Off-thread native base64 decoder: decodes data URLs in browser C++ networking / Buffer in Node
+  // completely eliminating multi-million iteration synchronous charCodeAt loops on the JS main thread
+  async function decodeBase64ToArrayBuffer(base64Str) {
+    if (!base64Str) return new ArrayBuffer(0);
+    if (typeof fetch === 'function') {
+      try {
+        const res = await fetch('data:application/octet-stream;base64,' + base64Str);
+        return await res.arrayBuffer();
+      } catch (e) {}
+    }
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+      const buf = Buffer.from(base64Str, 'base64');
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    }
+    if (typeof Uint8Array !== 'undefined' && typeof Uint8Array.fromBase64 === 'function') {
+      return Uint8Array.fromBase64(base64Str).buffer;
+    }
+    const binaryString = atob(base64Str);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   // Fetch stream resource safely using background proxy to eliminate CDN HTTP 403 Forbidden
   async function fetchResourceSafe(url, embedUrl = null, asBinary = false, byteRange = null) {
     let effectiveEmbed = embedUrl || detectedEmbedUrl;
@@ -1687,13 +1749,7 @@
 
         if (res && res.success) {
           if (asBinary && res.base64) {
-            const binaryString = atob(res.base64);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
+            return await decodeBase64ToArrayBuffer(res.base64);
           }
           if (!asBinary && res.text) {
             return res.text;
@@ -2603,8 +2659,22 @@
     let curAudioPes = null;
 
     function flushPes(pes, isVideo) {
-      if (!pes || !pes.data || pes.data.length < 9) return;
-      const bytes = new Uint8Array(pes.data);
+      if (!pes) return;
+      let bytes;
+      if (pes.chunks) {
+        if (pes.totalLen < 9) return;
+        bytes = new Uint8Array(pes.totalLen);
+        let offset = 0;
+        for (let i = 0; i < pes.chunks.length; i++) {
+          const ch = pes.chunks[i];
+          bytes.set(ch, offset);
+          offset += ch.length;
+        }
+      } else if (pes.data && pes.data.length >= 9) {
+        bytes = new Uint8Array(pes.data);
+      } else {
+        return;
+      }
       const flags2 = bytes[7];
       const ptsDtsFlags = (flags2 >> 6) & 0x03;
       const hLen = bytes[8];
@@ -2731,18 +2801,20 @@
         if (pid === videoPid) {
           if (pusi) {
             if (curVideoPes) flushPes(curVideoPes, true);
-            curVideoPes = { data: [] };
+            curVideoPes = { chunks: [], totalLen: 0 };
           }
           if (curVideoPes) {
-            for (let k = 0; k < chunk.length; k++) curVideoPes.data.push(chunk[k]);
+            curVideoPes.chunks.push(chunk);
+            curVideoPes.totalLen += chunk.length;
           }
         } else if (pid === audioPid) {
           if (pusi) {
             if (curAudioPes) flushPes(curAudioPes, false);
-            curAudioPes = { data: [] };
+            curAudioPes = { chunks: [], totalLen: 0 };
           }
           if (curAudioPes) {
-            for (let k = 0; k < chunk.length; k++) curAudioPes.data.push(chunk[k]);
+            curAudioPes.chunks.push(chunk);
+            curAudioPes.totalLen += chunk.length;
           }
         }
       }
@@ -3354,16 +3426,42 @@
     const total = segments.length;
     let completed = 0;
     const buffers = new Array(total);
-    const concurrency = 4;
     let nextIdx = 0;
     const subtle = (typeof crypto !== 'undefined' && crypto.subtle) ? crypto.subtle : null;
 
-    async function worker() {
+    // Detect if video playback is actively running in this or any connected frame
+    function isPlaybackActive() {
+      try {
+        if (activeVideo && !activeVideo.paused && !activeVideo.ended && (activeVideo.readyState >= 2 || activeVideo.currentTime > 0)) {
+          return true;
+        }
+        if (typeof document !== 'undefined') {
+          const vids = document.querySelectorAll('video');
+          for (let i = 0; i < vids.length; i++) {
+            const v = vids[i];
+            if (!v.paused && !v.ended && (v.readyState >= 2 || v.currentTime > 0)) {
+              return true;
+            }
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    async function worker(workerId) {
       while (nextIdx < total) {
         if (hlsAbortController && hlsAbortController.signal && hlsAbortController.signal.aborted) {
           throw new Error('Download cancelled by user.');
         }
+
+        // Adaptive Concurrency: If video playback is active, workers 2+ yield so player has dedicated sockets
+        if (workerId >= 2 && isPlaybackActive()) {
+          await new Promise(r => setTimeout(r, 60));
+          if (isPlaybackActive()) continue;
+        }
+
         const idx = nextIdx++;
+        if (idx >= total) break;
         const seg = segments[idx];
         let buffer = null;
         let attempts = 0;
@@ -3406,13 +3504,19 @@
           const pct = Math.round((completed / total) * 100);
           onProgress(pct, completed, total);
         }
+
+        // Cooperative socket pacing: When video is playing, yield 25ms to let player buffer & audio clock breathe
+        if (isPlaybackActive()) {
+          await new Promise(r => setTimeout(r, 25));
+        }
       }
     }
 
     try {
       const workers = [];
-      for (let w = 0; w < Math.min(concurrency, total); w++) {
-        workers.push(worker());
+      const workerCount = Math.min(4, total);
+      for (let w = 0; w < workerCount; w++) {
+        workers.push(worker(w));
       }
       await Promise.all(workers);
 
@@ -4447,6 +4551,85 @@
     } catch (e) {}
   }
 
+  // 2.9 Player Playback Stall Watchdog & Auto-Recovery Engine
+  // Prevents the video player from crashing, freezing indefinitely, or dropping frames during heavy downloads
+  let lastMonitoredVideoTime = -1;
+  let stallDurationSeconds = 0;
+  let stallRecoveryCount = 0;
+  let lastStallRecoveryTimestamp = 0;
+
+  function handlePlaybackStallRecovery(video) {
+    const target = video || activeVideo;
+    if (!target) return false;
+
+    const now = Date.now();
+    // Rate limit: max 3 recoveries within 30 seconds to prevent recovery flapping
+    if (now - lastStallRecoveryTimestamp > 30000) {
+      stallRecoveryCount = 0;
+    }
+    if (stallRecoveryCount >= 3) {
+      console.warn('[FocusGuard] Max stall recovery attempts reached within rate limit window.');
+      return false;
+    }
+
+    stallRecoveryCount++;
+    lastStallRecoveryTimestamp = now;
+    console.warn('[FocusGuard] Video playback stall detected! Initiating micro-nudge recovery (Attempt ' + stallRecoveryCount + ')...');
+
+    try {
+      // 1. Try to recover HLS.js if attached to window or video element
+      const hls = target.__hls__ || (typeof window !== 'undefined' ? window.hls : null);
+      if (hls && typeof hls.recoverMediaError === 'function') {
+        try {
+          hls.recoverMediaError();
+        } catch (e) {}
+      } else if (hls && typeof hls.startLoad === 'function') {
+        try {
+          hls.startLoad();
+        } catch (e) {}
+      }
+
+      // 2. Nudge playback past any tiny discontinuity / timestamp boundary gap (typically 0.05s)
+      if (!isNaN(target.currentTime) && target.duration && target.currentTime < target.duration - 1) {
+        target.currentTime = Math.min(target.duration - 0.5, target.currentTime + 0.08);
+      }
+
+      // 3. Re-trigger play promise
+      const playPromise = target.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {});
+      }
+
+      showHud('⚡', 'Smooth Playback: Nudged past buffer stall', { duration: 1800 });
+      return true;
+    } catch (err) {
+      console.warn('[FocusGuard] Error during stall recovery:', err);
+      return false;
+    }
+  }
+
+  function checkPlayerPlaybackWatchdog() {
+    if (!isEnabled() || !playerSettings.enableSmoothPlayback) return;
+    if (!activeVideo || activeVideo.paused || activeVideo.ended) {
+      stallDurationSeconds = 0;
+      lastMonitoredVideoTime = activeVideo ? activeVideo.currentTime : -1;
+      return;
+    }
+
+    const curTime = activeVideo.currentTime;
+    if (lastMonitoredVideoTime >= 0 && Math.abs(curTime - lastMonitoredVideoTime) < 0.02) {
+      // Video is unpaused, but currentTime is not advancing!
+      stallDurationSeconds += 1.2; // Based on the 1200ms interval
+      if (stallDurationSeconds >= 3.5) {
+        stallDurationSeconds = 0;
+        handlePlaybackStallRecovery(activeVideo);
+      }
+    } else {
+      stallDurationSeconds = 0;
+      lastMonitoredVideoTime = curTime;
+    }
+  }
+
   // 1.5 Universal Player Scrollbar Killer
   // Completely suppresses, removes, and disables scrollbars from the video player
   // across all viewing modes (normal, theater, fullscreen) on Aniwatch, HiAnime, etc.
@@ -4551,15 +4734,19 @@
   enforcePlayerNoScrollbars();
 
   // Continuous player controller loop: monitors buffer, scrollbars, and DUB state
-  setInterval(() => {
+  const controllerInterval = setInterval(() => {
     if (!isEnabled()) return;
     findVideos();
     if (activeVideo && playerSettings.enableSmoothPlayback) {
       optimizeVideoBuffering(activeVideo);
+      checkPlayerPlaybackWatchdog();
     }
     enforcePlayerNoScrollbars();
     enforceDubSelection();
   }, 1200);
+  if (controllerInterval && typeof controllerInterval.unref === 'function') {
+    try { controllerInterval.unref(); } catch (e) {}
+  }
 
   function getAllVideos(root = document) {
     const results = [];
@@ -5543,6 +5730,9 @@
     window.__focusguard_detect_stream_format__ = detectStreamFormat;
     window.__focusguard_convert_remux_stream__ = convertAndRemuxStreamForSmoothPlayback;
     window.__focusguard_download_metadata_file__ = downloadEpisodeMetadataFile;
+    window.__focusguard_decode_base64__ = decodeBase64ToArrayBuffer;
+    window.__focusguard_playback_stall_recovery__ = handlePlaybackStallRecovery;
+    window.__focusguard_check_playback_watchdog__ = checkPlayerPlaybackWatchdog;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -5573,7 +5763,10 @@
       transmuxTsToSmoothMp4,
       convertAndRemuxStreamForSmoothPlayback,
       generateEpisodeMetadataPayload,
-      downloadEpisodeMetadataFile
+      downloadEpisodeMetadataFile,
+      decodeBase64ToArrayBuffer,
+      handlePlaybackStallRecovery,
+      checkPlayerPlaybackWatchdog
     };
   }
 })();

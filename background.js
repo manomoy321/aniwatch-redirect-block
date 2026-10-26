@@ -927,21 +927,21 @@ async function setStreamBypassHeaders(embedUrl, targetUrl) {
     const targetUrlStr = (targetUrl || '').toLowerCase();
     const embedUrlStr = (embedUrl || '').toLowerCase();
 
-    // Known streaming CDN overrides
+    // Known streaming CDN overrides (preserves exact embedUrl when available so in-page player is not corrupted)
     if (targetUrlStr.includes('quavex') || targetUrlStr.includes('nexabloom') || targetUrlStr.includes('megaplay') || embedUrlStr.includes('megaplay') || embedUrlStr.includes('1anime')) {
       cleanOrigin = 'https://megaplay.buzz';
-      cleanReferer = 'https://megaplay.buzz/';
+      cleanReferer = (embedUrl && embedUrlStr.startsWith('http')) ? embedUrl : 'https://megaplay.buzz/';
     } else if (targetUrlStr.includes('megacloud') || embedUrlStr.includes('megacloud')) {
       cleanOrigin = 'https://megacloud.tv';
-      cleanReferer = 'https://megacloud.tv/';
+      cleanReferer = (embedUrl && embedUrlStr.startsWith('http')) ? embedUrl : 'https://megacloud.tv/';
     } else if (targetUrlStr.includes('rapid-cloud') || embedUrlStr.includes('rapid-cloud')) {
       cleanOrigin = 'https://rapid-cloud.co';
-      cleanReferer = 'https://rapid-cloud.co/';
+      cleanReferer = (embedUrl && embedUrlStr.startsWith('http')) ? embedUrl : 'https://rapid-cloud.co/';
     } else if (embedUrl) {
       try {
         const u = new URL(embedUrl);
         cleanOrigin = u.origin;
-        cleanReferer = u.origin + '/';
+        cleanReferer = embedUrl;
       } catch (e) {}
     }
 
