@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const totalBlockedCount = document.getElementById('total-blocked-count');
   const btnModeBlock = document.getElementById('btn-mode-block');
   const btnModeFocus = document.getElementById('btn-mode-focus');
+  const btnModeNothing = document.getElementById('btn-mode-nothing');
   const toggleOverlays = document.getElementById('toggle-overlays');
   const btnToggleWhitelist = document.getElementById('btn-toggle-whitelist');
   const whitelistBtnText = document.getElementById('whitelist-btn-text');
@@ -31,6 +32,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toggleSmoothPlayback = document.getElementById('toggle-smooth-playback');
   const toggleDownloadMetadata = document.getElementById('toggle-download-metadata');
   const toggleDownloadSubtitles = document.getElementById('toggle-download-subtitles');
+  const toggleContinuousDownload = document.getElementById('toggle-continuous-download');
+  const selectMaxConcurrent = document.getElementById('select-max-concurrent');
   const selectPreferredAudio = document.getElementById('select-preferred-audio');
   const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
   const shortcutsPanel = document.getElementById('shortcuts-panel');
@@ -52,9 +55,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     enableAutoSkipOutro: true,
     enableAutoSelectEng: true,
     nextEpisodeDelay: 0,
-    enableSmoothPlayback: true,
+    enableSmoothPlayback: false,
     enableDownloadMetadata: false,
     enableDownloadSubtitles: false,
+    enableContinuousDownload: false,
+    maxConcurrent: 0,
     preferredAudioLanguage: 'dub'
   };
 
@@ -86,7 +91,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       'enabled', 'mode', 'blockOverlays', 'whitelist', 'totalBlocked', 'siteStats',
       'enableKeyboardControls', 'enableFullscreenFix', 'enableAutoPlay', 'enableAutoNext',
       'enableAutoSkipIntro', 'enableAutoSkipOutro', 'enableAutoSelectEng', 'nextEpisodeDelay',
-      'enableSmoothPlayback', 'enableDownloadMetadata', 'enableDownloadSubtitles', 'preferredAudioLanguage'
+      'enableSmoothPlayback', 'enableDownloadMetadata', 'enableDownloadSubtitles', 'enableContinuousDownload', 'preferredAudioLanguage',
+      'downloadSettings'
     ],
     (data) => {
       if (data.enabled !== undefined) appState.enabled = data.enabled;
@@ -105,10 +111,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (data.enableAutoSkipOutro !== undefined) appState.enableAutoSkipOutro = data.enableAutoSkipOutro;
       if (data.enableAutoSelectEng !== undefined) appState.enableAutoSelectEng = data.enableAutoSelectEng;
       if (data.nextEpisodeDelay !== undefined) appState.nextEpisodeDelay = Number(data.nextEpisodeDelay) || 0;
-      if (data.enableSmoothPlayback !== undefined) appState.enableSmoothPlayback = data.enableSmoothPlayback;
-      if (data.enableDownloadMetadata !== undefined) appState.enableDownloadMetadata = data.enableDownloadMetadata;
-      if (data.enableDownloadSubtitles !== undefined) appState.enableDownloadSubtitles = data.enableDownloadSubtitles;
+      // Permanently keep smooth playback, download metadata, and subtitles disabled (always saved as false)
+      appState.enableSmoothPlayback = false;
+      appState.enableDownloadMetadata = false;
+      appState.enableDownloadSubtitles = false;
+      chrome.storage.local.set({
+        enableSmoothPlayback: false,
+        enableDownloadMetadata: false,
+        enableDownloadSubtitles: false
+      });
+      if (data.enableContinuousDownload !== undefined) appState.enableContinuousDownload = data.enableContinuousDownload;
       if (data.preferredAudioLanguage !== undefined) appState.preferredAudioLanguage = data.preferredAudioLanguage;
+      if (data.downloadSettings && typeof data.downloadSettings.maxConcurrent !== 'undefined') {
+        appState.maxConcurrent = Number(data.downloadSettings.maxConcurrent) || 0;
+      }
 
       renderUI();
     }
@@ -141,12 +157,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     totalBlockedCount.textContent = appState.totalBlocked || 0;
 
     // Mode segmented buttons
-    if (appState.mode === 'keep_focus') {
-      btnModeFocus.classList.add('active');
-      btnModeBlock.classList.remove('active');
+    if (appState.mode === 'do_nothing') {
+      if (btnModeNothing) btnModeNothing.classList.add('active');
+      if (btnModeBlock) btnModeBlock.classList.remove('active');
+      if (btnModeFocus) btnModeFocus.classList.remove('active');
+    } else if (appState.mode === 'keep_focus') {
+      if (btnModeFocus) btnModeFocus.classList.add('active');
+      if (btnModeBlock) btnModeBlock.classList.remove('active');
+      if (btnModeNothing) btnModeNothing.classList.remove('active');
     } else {
-      btnModeBlock.classList.add('active');
-      btnModeFocus.classList.remove('active');
+      if (btnModeBlock) btnModeBlock.classList.add('active');
+      if (btnModeFocus) btnModeFocus.classList.remove('active');
+      if (btnModeNothing) btnModeNothing.classList.remove('active');
     }
 
     // Feature toggles
@@ -161,9 +183,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (toggleAutoNext) toggleAutoNext.checked = appState.enableAutoNext;
     if (toggleEng) toggleEng.checked = appState.enableAutoSelectEng;
     if (selectNextDelay) selectNextDelay.value = String(appState.nextEpisodeDelay);
-    if (toggleSmoothPlayback) toggleSmoothPlayback.checked = appState.enableSmoothPlayback;
-    if (toggleDownloadMetadata) toggleDownloadMetadata.checked = appState.enableDownloadMetadata;
-    if (toggleDownloadSubtitles) toggleDownloadSubtitles.checked = appState.enableDownloadSubtitles;
+    if (toggleContinuousDownload) toggleContinuousDownload.checked = appState.enableContinuousDownload;
+    if (selectMaxConcurrent) selectMaxConcurrent.value = String(appState.maxConcurrent !== undefined ? appState.maxConcurrent : 0);
     if (selectPreferredAudio) selectPreferredAudio.value = appState.preferredAudioLanguage || 'dub';
 
     // Whitelist button state
@@ -192,20 +213,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Mode Selection: Block & Close
-  btnModeBlock.addEventListener('click', () => {
-    appState.mode = 'block_and_close';
-    chrome.storage.local.set({ mode: 'block_and_close' }, () => {
-      renderUI();
+  if (btnModeBlock) {
+    btnModeBlock.addEventListener('click', () => {
+      appState.mode = 'block_and_close';
+      chrome.storage.local.set({ mode: 'block_and_close' }, () => {
+        renderUI();
+      });
     });
-  });
+  }
 
   // Mode Selection: Lock Main Tab Focus
-  btnModeFocus.addEventListener('click', () => {
-    appState.mode = 'keep_focus';
-    chrome.storage.local.set({ mode: 'keep_focus' }, () => {
-      renderUI();
+  if (btnModeFocus) {
+    btnModeFocus.addEventListener('click', () => {
+      appState.mode = 'keep_focus';
+      chrome.storage.local.set({ mode: 'keep_focus' }, () => {
+        renderUI();
+      });
     });
-  });
+  }
+
+  // Mode Selection: Do Nothing (Standard Browser Behavior)
+  if (btnModeNothing) {
+    btnModeNothing.addEventListener('click', () => {
+      appState.mode = 'do_nothing';
+      chrome.storage.local.set({ mode: 'do_nothing' }, () => {
+        renderUI();
+      });
+    });
+  }
+
+  // Concurrent Downloads Limit Selection
+  if (selectMaxConcurrent) {
+    selectMaxConcurrent.addEventListener('change', () => {
+      const val = parseInt(selectMaxConcurrent.value, 10) || 0;
+      appState.maxConcurrent = val;
+      chrome.storage.local.set({ downloadSettings: { maxConcurrent: val } }, () => {
+        if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: 'set_queue_settings', settings: { maxConcurrent: val } });
+        }
+      });
+    });
+  }
 
   // Overlay Interception toggle
   toggleOverlays.addEventListener('change', () => {
@@ -270,24 +318,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  if (toggleSmoothPlayback) {
-    toggleSmoothPlayback.addEventListener('change', () => {
-      appState.enableSmoothPlayback = toggleSmoothPlayback.checked;
-      chrome.storage.local.set({ enableSmoothPlayback: appState.enableSmoothPlayback });
-    });
-  }
-
-  if (toggleDownloadMetadata) {
-    toggleDownloadMetadata.addEventListener('change', () => {
-      appState.enableDownloadMetadata = toggleDownloadMetadata.checked;
-      chrome.storage.local.set({ enableDownloadMetadata: appState.enableDownloadMetadata });
-    });
-  }
-
-  if (toggleDownloadSubtitles) {
-    toggleDownloadSubtitles.addEventListener('change', () => {
-      appState.enableDownloadSubtitles = toggleDownloadSubtitles.checked;
-      chrome.storage.local.set({ enableDownloadSubtitles: appState.enableDownloadSubtitles });
+  if (toggleContinuousDownload) {
+    toggleContinuousDownload.addEventListener('change', () => {
+      appState.enableContinuousDownload = toggleContinuousDownload.checked;
+      chrome.storage.local.set({ enableContinuousDownload: appState.enableContinuousDownload });
     });
   }
 
@@ -365,284 +399,5 @@ document.addEventListener('DOMContentLoaded', async () => {
       appState.siteStats = {};
       renderUI();
     });
-  });
-
-  // ==========================================================================
-  // Download Queue Manager (Reactive, Real-Time & Persistent)
-  // ==========================================================================
-  const queueCountBadge = document.getElementById('queue-count-badge');
-  const btnClearQueue = document.getElementById('btn-clear-queue');
-  const btnPauseAllQueue = document.getElementById('btn-pause-all-queue');
-  const btnResumeAllQueue = document.getElementById('btn-resume-all-queue');
-  const btnExportQueue = document.getElementById('btn-export-queue');
-  const queueSearchInput = document.getElementById('queue-search-input');
-  const queueEmptyState = document.getElementById('queue-empty-state');
-  const queueItemsList = document.getElementById('queue-items-list');
-
-  let currentQueue = [];
-
-  function formatBytes(bytes) {
-    if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let idx = 0;
-    let b = Number(bytes);
-    while (b >= 1024 && idx < units.length - 1) {
-      b /= 1024;
-      idx++;
-    }
-    return `${b.toFixed(idx > 1 ? 1 : 0)} ${units[idx]}`;
-  }
-
-  function formatSpeed(bytesPerSec) {
-    if (!bytesPerSec || bytesPerSec <= 0) return '';
-    return `${formatBytes(bytesPerSec)}/s`;
-  }
-
-  function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function renderDownloadQueue(queue = []) {
-    currentQueue = Array.isArray(queue) ? queue : [];
-    if (!queueItemsList || !queueCountBadge) return;
-
-    const activeJobs = currentQueue.filter(j => j.status === 'downloading' || j.status === 'queued' || j.status === 'preparing');
-    queueCountBadge.textContent = `${activeJobs.length} active`;
-    if (activeJobs.length > 0) {
-      queueCountBadge.classList.add('has-active');
-    } else {
-      queueCountBadge.classList.remove('has-active');
-    }
-
-    const searchTerm = (queueSearchInput && queueSearchInput.value)
-      ? queueSearchInput.value.trim().toLowerCase()
-      : '';
-
-    const displayedJobs = searchTerm
-      ? currentQueue.filter(job => {
-          const t = (job.title || '').toLowerCase();
-          const f = (job.filename || '').toLowerCase();
-          const q = (job.quality || '').toLowerCase();
-          const ep = (job.episodeNum !== undefined ? String(job.episodeNum) : '').toLowerCase();
-          return t.includes(searchTerm) || f.includes(searchTerm) || q.includes(searchTerm) || ep.includes(searchTerm);
-        })
-      : currentQueue;
-
-    if (displayedJobs.length === 0) {
-      if (queueEmptyState) {
-        queueEmptyState.style.display = 'flex';
-        const emptyMsg = queueEmptyState.querySelector('span:first-of-type');
-        if (emptyMsg) {
-          emptyMsg.textContent = searchTerm ? 'No matching downloads found' : 'Download queue is empty';
-        }
-      }
-      queueItemsList.innerHTML = '';
-      return;
-    }
-
-    if (queueEmptyState) queueEmptyState.style.display = 'none';
-
-    queueItemsList.innerHTML = displayedJobs.map(job => {
-      const pct = Math.max(0, Math.min(100, Math.round(job.progress || 0)));
-      const isComplete = job.status === 'completed';
-      const isFailed = job.status === 'failed';
-      const isPaused = job.status === 'paused';
-      const isDownloading = job.status === 'downloading';
-      const isQueued = job.status === 'queued';
-      const isCancelled = job.status === 'cancelled';
-
-      let statusClass = `status-${job.status || 'queued'}`;
-      let statusLabel = (job.status || 'queued').toUpperCase();
-
-      let metaText = '';
-      if (isDownloading) {
-        if (job.total > 0 && job.completed !== undefined) {
-          const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
-          const bytesPart = job.bytesReceived > 0 ? `${formatBytes(job.bytesReceived)} • ` : '';
-          metaText = `${bytesPart}Segments: ${job.completed}/${job.total}${spd}`;
-        } else {
-          const dlBytes = formatBytes(job.bytesReceived);
-          const total = job.totalBytes > 0 ? ` / ${formatBytes(job.totalBytes)}` : '';
-          const spd = job.speed > 0 ? ` • ${formatSpeed(job.speed)}` : '';
-          metaText = `${dlBytes}${total}${spd}`;
-        }
-      } else if (isComplete) {
-        metaText = job.totalBytes > 0 ? formatBytes(job.totalBytes) : 'Complete';
-      } else if (isFailed) {
-        metaText = job.error ? String(job.error).substring(0, 48) : 'Download error';
-      } else if (isPaused) {
-        metaText = 'Paused';
-      } else if (isQueued) {
-        metaText = 'Waiting in queue...';
-      }
-
-      let actionsHtml = '';
-      if (isDownloading) {
-        actionsHtml = `
-          <button type="button" class="btn-job-action" data-action="pause" data-id="${job.id}">Pause</button>
-          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
-        `;
-      } else if (isPaused) {
-        actionsHtml = `
-          <button type="button" class="btn-job-action" data-action="resume" data-id="${job.id}">Resume</button>
-          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
-        `;
-      } else if (isQueued) {
-        actionsHtml = `
-          <button type="button" class="btn-job-action danger" data-action="cancel" data-id="${job.id}">Cancel</button>
-        `;
-      } else if (isFailed || isCancelled) {
-        actionsHtml = `
-          <button type="button" class="btn-job-action" data-action="retry" data-id="${job.id}">Retry</button>
-          <button type="button" class="btn-job-action danger" data-action="remove" data-id="${job.id}">✕</button>
-        `;
-      } else if (isComplete) {
-        actionsHtml = `
-          <button type="button" class="btn-job-action" data-action="remove" data-id="${job.id}">✕</button>
-        `;
-      }
-
-      const qualityPill = job.quality ? `<span class="queue-quality-pill">${escapeHtml(job.quality)}</span>` : '';
-      const safeTitle = escapeHtml(job.filename || job.title || 'Video');
-
-      return `
-        <div class="queue-card" data-job-id="${job.id}">
-          <div class="queue-card-top">
-            <div class="queue-card-title-group">
-              ${qualityPill}
-              <span class="queue-card-title" title="${safeTitle}">${safeTitle}</span>
-            </div>
-            <span class="queue-status-tag ${statusClass}">${statusLabel}</span>
-          </div>
-          <div class="queue-progress-track">
-            <div class="queue-progress-bar" style="width: ${pct}%"></div>
-          </div>
-          <div class="queue-card-meta">
-            <div class="queue-meta-text">
-              <span>${pct}%</span>
-              <span>${escapeHtml(metaText)}</span>
-            </div>
-            <div class="queue-card-actions">
-              ${actionsHtml}
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    const actionBtns = queueItemsList.querySelectorAll('.btn-job-action');
-    actionBtns.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const action = btn.getAttribute('data-action');
-        const jobId = btn.getAttribute('data-id');
-        if (!jobId || !action) return;
-
-        let msgAction = '';
-        if (action === 'pause') msgAction = 'pause_download';
-        else if (action === 'resume') msgAction = 'resume_download';
-        else if (action === 'cancel') msgAction = 'cancel_download';
-        else if (action === 'retry') msgAction = 'retry_download';
-        else if (action === 'remove') msgAction = 'remove_download';
-
-        if (msgAction) {
-          chrome.runtime.sendMessage({ action: msgAction, jobId: jobId }, (res) => {
-            if (res && res.queue) {
-              renderDownloadQueue(res.queue);
-            }
-          });
-        }
-      });
-    });
-  }
-
-  // Clear completed downloads
-  if (btnClearQueue) {
-    btnClearQueue.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'clear_completed_downloads' }, (res) => {
-        if (res && res.queue) {
-          renderDownloadQueue(res.queue);
-        }
-      });
-    });
-  }
-
-  // Batch pause all downloads
-  if (btnPauseAllQueue) {
-    btnPauseAllQueue.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'pause_all_downloads' }, (res) => {
-        if (res && res.queue) {
-          renderDownloadQueue(res.queue);
-        }
-      });
-    });
-  }
-
-  // Batch resume all downloads
-  if (btnResumeAllQueue) {
-    btnResumeAllQueue.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'resume_all_downloads' }, (res) => {
-        if (res && res.queue) {
-          renderDownloadQueue(res.queue);
-        }
-      });
-    });
-  }
-
-  // Export download queue history as JSON
-  if (btnExportQueue) {
-    btnExportQueue.addEventListener('click', () => {
-      try {
-        const historyData = JSON.stringify(currentQueue, null, 2);
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const filename = `focusguard-download-history-${dateStr}.json`;
-        const blob = new Blob([historyData], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          a.remove();
-          URL.revokeObjectURL(url);
-        }, 1200);
-      } catch (err) {
-        console.warn('[FocusGuard] Export queue error:', err);
-      }
-    });
-  }
-
-  // Live filter queue on search typing
-  if (queueSearchInput) {
-    queueSearchInput.addEventListener('input', () => {
-      renderDownloadQueue(currentQueue);
-    });
-  }
-
-  // Load initial download queue
-  chrome.storage.local.get(['downloadQueue'], (data) => {
-    if (Array.isArray(data.downloadQueue)) {
-      renderDownloadQueue(data.downloadQueue);
-    } else {
-      chrome.runtime.sendMessage({ action: 'get_download_queue' }, (res) => {
-        if (res && Array.isArray(res.queue)) {
-          renderDownloadQueue(res.queue);
-        }
-      });
-    }
-  });
-
-  // Listen to live changes to downloadQueue in storage
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.downloadQueue) {
-      renderDownloadQueue(changes.downloadQueue.newValue || []);
-    }
   });
 });

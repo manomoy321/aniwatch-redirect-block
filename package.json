@@ -1,10 +1,10 @@
 {
   "name": "aniwatch-episode-downloader",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Aniwatch Episode Downloader & Redirect Blocker - Download anime episodes in 1080p, 720p, and 480p from Aniwatch and HiAnime with live on-player download progress bar.",
   "main": "background.js",
   "scripts": {
-    "test": "node tests/test_download_episode.js && node tests/test_universal_download.js && node tests/test_m4s_and_quality_control.js && node tests/test_complete_video_smooth_playback.js && node tests/test_dub_all_time.js && node tests/test_dub_continuity.js && node tests/test_background_download_queue_and_api.js && node tests/test_smooth_vlc_playback_and_metadata.js && node tests/test_player_playback_crash_prevention.js && node tests/test_audio_and_seek_smoothness.js && node tests/test_continuous_download_and_caching_fixes.js && node tests/test_batch_season_downloader.js && node tests/test_subtitle_extraction_and_softsubs.js && node tests/test_popup_dashboard_and_audio_switcher.js",
+    "test": "node tests/run_all_tests.js",
     "test:download": "node tests/test_download_episode.js",
     "test:universal": "node tests/test_universal_download.js",
     "test:m4s": "node tests/test_m4s_and_quality_control.js",
@@ -18,6 +18,8 @@
     "test:batch": "node tests/test_batch_season_downloader.js",
     "test:subtitles": "node tests/test_subtitle_extraction_and_softsubs.js",
     "test:dashboard": "node tests/test_popup_dashboard_and_audio_switcher.js",
+    "test:stress": "node tests/test_continuous_download_stress_and_resilience.js",
+    "test:unlimited": "node tests/test_unlimited_downloads_and_do_nothing_mode.js",
     "package": "node scripts/package_extension.js",
     "build:zip": "powershell -ExecutionPolicy Bypass -File scripts/package_extension.ps1"
   },

@@ -17,9 +17,10 @@
     enableAutoSkipIntro: true,
     enableAutoSkipOutro: true,
     enableAutoSelectEng: true,
-    enableSmoothPlayback: true,
+    enableSmoothPlayback: false,
     enableDownloadMetadata: false,
     enableDownloadSubtitles: false,
+    enableContinuousDownload: false,
     preferredAudioLanguage: 'dub',
     preferredServerCategory: 'dub', // 'dub' | 'sub'
     preferredServerName: 'vidsrc',   // e.g. 'vidsrc', 'megacloud'
@@ -47,6 +48,22 @@
   let isDownloading = false;
   const tabPendingHlsQueue = [];
   const activeHlsAbortControllers = new Map();
+  const activeObjectUrls = new Set();
+  function revokeActiveObjectUrl(url) {
+    if (!url) return;
+    try {
+      if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {}
+    activeObjectUrls.delete(url);
+  }
+  function clearAllActiveObjectUrls() {
+    for (const u of activeObjectUrls) {
+      revokeActiveObjectUrl(u);
+    }
+    activeObjectUrls.clear();
+  }
   let detectedStreamUrl = null;
   let detectedEmbedUrl = null;
   let cachedPlaylistUrl = null;
@@ -2145,14 +2162,15 @@
     }
   }
 
-  // Deduplication caches to eliminate duplicate downloads within rapid cooldown
+  // Deduplication caches to eliminate rapid duplicate clicks while preserving continuous sequential downloads
   const recentSavedBlobs = new Map();
   function isRecentlySaved(key) {
     const now = Date.now();
     for (const [k, ts] of recentSavedBlobs.entries()) {
       if (now - ts > 10000) recentSavedBlobs.delete(k);
     }
-    if (recentSavedBlobs.has(key) && (now - recentSavedBlobs.get(key) < 5000)) {
+    // Strict double-click guard (1000ms): Only reject near-instantaneous identical duplicate triggers
+    if (recentSavedBlobs.has(key) && (now - recentSavedBlobs.get(key) < 1000)) {
       return true;
     }
     recentSavedBlobs.set(key, now);
@@ -2165,7 +2183,7 @@
     for (const [k, ts] of recentAnchorDownloads.entries()) {
       if (now - ts > 10000) recentAnchorDownloads.delete(k);
     }
-    if (recentAnchorDownloads.has(key) && (now - recentAnchorDownloads.get(key) < 4000)) {
+    if (recentAnchorDownloads.has(key) && (now - recentAnchorDownloads.get(key) < 1000)) {
       return true;
     }
     recentAnchorDownloads.set(key, now);
@@ -2200,14 +2218,17 @@
     try {
       const url = (typeof URL !== 'undefined' && URL.createObjectURL) ? URL.createObjectURL(blob) : (blob.objectUrl || '');
       if (url) {
+        // Active Object URL registry: prune older URLs so multi-episode downloads do not hold gigabytes in RAM
+        if (activeObjectUrls.size >= 2) {
+          const oldest = activeObjectUrls.values().next().value;
+          revokeActiveObjectUrl(oldest);
+        }
+        activeObjectUrls.add(url);
+
         fallbackAnchorDownload(url, filename);
         setTimeout(() => {
-          try {
-            if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
-              URL.revokeObjectURL(url);
-            }
-          } catch (e) {}
-        }, 12000);
+          revokeActiveObjectUrl(url);
+        }, 5000);
       }
     } catch (err) {
       console.error('[FocusGuard] saveBlobDirectlyOrDelegate error:', err);
@@ -3093,8 +3114,11 @@
       }
     }
 
-    const allSanitized = finalInitBuf ? [finalInitBuf, ...sanitizedFragments] : sanitizedFragments;
+    const allSanitized = finalInitBuf ? [finalInitBuf, ...sanitizedFragments] : [...sanitizedFragments];
     const blob = new Blob(allSanitized, { type: 'video/mp4' });
+
+    // Zero intermediate working array to release fragment memory
+    sanitizedFragments.length = 0;
 
     const streamInfo = {
       duration: durationSeconds,
@@ -3244,7 +3268,9 @@
       }
     }
 
-    return optimizeFmp4ForSmoothPlayback(combinedInit ? [combinedInit, ...interleaved] : interleaved, meta);
+    const combinedResult = optimizeFmp4ForSmoothPlayback(combinedInit ? [combinedInit, ...interleaved] : interleaved, meta);
+    interleaved.length = 0;
+    return combinedResult;
   }
 
   // Patches tfhd track_id inside all traf boxes in an fMP4 fragment
@@ -4014,6 +4040,9 @@
     const allParts = [ftypBox, moovBox, ...fragments];
     const blob = new Blob(allParts, { type: 'video/mp4' });
 
+    // Zero internal fragment arrays to free memory for sequential downloads
+    fragments.length = 0;
+
     const streamInfo = {
       duration: totalVideoDurationSec,
       durationSeconds: Number(totalVideoDurationSec.toFixed(2)),
@@ -4057,8 +4086,8 @@
     const sample = (effectiveInitBuf && effectiveInitBuf.byteLength > 0) ? effectiveInitBuf : validBuffers[0];
     const format = detectStreamFormat(sample);
 
-    let enableRemux = true;
-    let enableMetadata = true;
+    let enableRemux = false;
+    let enableMetadata = false;
 
     if (options.enableSmoothPlayback !== undefined) {
       enableRemux = Boolean(options.enableSmoothPlayback);
@@ -4067,7 +4096,7 @@
     } else {
       try {
         if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-          const data = await new Promise(r => chrome.storage.local.get({ enableSmoothPlayback: true, enableDownloadMetadata: true }, r));
+          const data = await new Promise(r => chrome.storage.local.get({ enableSmoothPlayback: false, enableDownloadMetadata: false }, r));
           if (data && data.enableSmoothPlayback !== undefined) enableRemux = data.enableSmoothPlayback;
           if (data && data.enableDownloadMetadata !== undefined) enableMetadata = data.enableDownloadMetadata;
         }
@@ -4544,7 +4573,7 @@
         let attempts = 0;
         let lastErr = null;
 
-        while (attempts < 3) {
+        while (attempts < 5) {
           if (hlsAbortController && hlsAbortController.signal && hlsAbortController.signal.aborted) {
             throw new Error('Download cancelled by user.');
           }
@@ -4554,8 +4583,23 @@
           } catch (err) {
             attempts++;
             lastErr = err;
-            if (attempts < 3) {
-              await new Promise(r => setTimeout(r, attempts * 400));
+            if (attempts >= 3) {
+              // Circuit breaker: transient CDN 403/429 or dropped DNR headers under continuous hammering.
+              // Re-arm DNR headers and pause briefly before next attempt
+              try {
+                if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+                  chrome.runtime.sendMessage({
+                    action: 'arm_stream_bypass',
+                    url: seg.url,
+                    embedUrl: embedUrl
+                  }).catch(() => {});
+                }
+              } catch (e) {}
+              await new Promise(r => setTimeout(r, 600));
+            }
+            if (attempts < 5) {
+              const delay = Math.min(3000, 250 * (2 ** (attempts - 1)) + Math.random() * 200);
+              await new Promise(r => setTimeout(r, delay));
             }
           }
         }
@@ -4620,13 +4664,19 @@
         blob.filename = conversionResult.filename || filename;
         blob.playlistContent = playlistContent;
       } catch (e) {}
+
       // Clear segment buffers immediately to free up memory for continuous downloads
       videoBuffers.length = 0;
+      validVideoBuffers.length = 0;
       if (audioBuffers) audioBuffers.length = 0;
+      if (validAudioBuffers) validAudioBuffers.length = 0;
+      videoInitSegmentBuffer = null;
+      audioInitSegmentBuffer = null;
       return blob;
     } finally {
       if (hlsAbortController) {
         activeHlsAbortControllers.delete(hlsJobId);
+        if (externalJobId) activeHlsAbortControllers.delete(externalJobId);
       }
     }
   }
@@ -4735,7 +4785,7 @@
     }
 
     const meta = customMeta || getEpisodeMetadata(null, chosenQuality, video);
-    let saveFilename = meta.filename || 'video.mp4';
+    let saveFilename = (customMeta && customMeta.filename) || meta.filename || 'video.mp4';
     saveFilename = saveFilename.replace(/\.(m4s|ts|m3u8|mpd)$/i, '');
     if (!saveFilename.toLowerCase().endsWith('.mp4')) {
       saveFilename += '.mp4';
@@ -4766,10 +4816,14 @@
     if (btn) btn.classList.add('fg-downloading');
 
     isDownloading = true;
-    const currentHlsJobId = 'fg_hls_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    const currentHlsJobId = (customMeta && (customMeta.id || customMeta.jobId)) ||
+                            (qualityOrMeta && typeof qualityOrMeta === 'object' && (qualityOrMeta.id || qualityOrMeta.jobId)) ||
+                            ('fg_hls_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
 
     try {
-      let targetUrl = resolveActiveStreamUrl(video);
+      let targetUrl = (customMeta && (customMeta.url || customMeta.streamUrl)) ||
+                      (qualityOrMeta && typeof qualityOrMeta === 'object' && (qualityOrMeta.url || qualityOrMeta.streamUrl)) ||
+                      resolveActiveStreamUrl(video);
 
       // If stream not immediately known, request Main World on-demand scan and wait briefly
       if (!targetUrl && typeof window !== 'undefined') {
@@ -4777,7 +4831,9 @@
           window.dispatchEvent(new CustomEvent('__focusguard_request_stream_scan__'));
         } catch (e) {}
         await new Promise(r => setTimeout(r, 250));
-        targetUrl = resolveActiveStreamUrl(video);
+        targetUrl = (customMeta && (customMeta.url || customMeta.streamUrl)) ||
+                    (qualityOrMeta && typeof qualityOrMeta === 'object' && (qualityOrMeta.url || qualityOrMeta.streamUrl)) ||
+                    resolveActiveStreamUrl(video);
       }
 
       // Check if chosen quality has a specific direct URL (e.g. 720p MP4 or specific variant playlist)
@@ -4797,7 +4853,9 @@
       }
 
       // Determine effective embed URL for CDN referer bypass
-      let effectiveEmbedUrl = detectedEmbedUrl;
+      let effectiveEmbedUrl = (customMeta && customMeta.embedUrl) ||
+                             (qualityOrMeta && typeof qualityOrMeta === 'object' && qualityOrMeta.embedUrl) ||
+                             detectedEmbedUrl;
       if (!effectiveEmbedUrl) {
         if (typeof window !== 'undefined' && window !== window.top) {
           effectiveEmbedUrl = window.location.href;
@@ -4881,6 +4939,11 @@
 
           const finalSaveFilename = (blobResult && blobResult.filename) || meta.filename;
           triggerFileSave(blobResult, finalSaveFilename);
+
+          // Continuous Auto-Download: automatically queue consecutive episode if continuous mode enabled
+          if (playerSettings && playerSettings.enableContinuousDownload && meta && meta.isEpisode && meta.episodeNum) {
+            triggerContinuousNextEpisodeDownload(meta, chosenQuality);
+          }
 
           // Only save companion metadata file (.info.json) if explicitly opted-in by user
           if (playerSettings && playerSettings.enableDownloadMetadata) {
@@ -4979,7 +5042,7 @@
       while (tabPendingHlsQueue.length > 0) {
         const candidate = tabPendingHlsQueue[0];
         const candMeta = candidate.maybeMeta || (typeof candidate.qualityOrMeta === 'object' ? candidate.qualityOrMeta : null);
-        if (candMeta && (candMeta.filename === meta.filename || (candMeta.episodeNum && candMeta.episodeNum === meta.episodeNum))) {
+        if (candMeta && ((candMeta.id && candMeta.id === currentHlsJobId) || (candMeta.filename === meta.filename && candMeta.episodeNum === meta.episodeNum))) {
           tabPendingHlsQueue.shift();
         } else {
           break;
@@ -4991,6 +5054,51 @@
           downloadActiveVideo(nextJob.qualityOrMeta, nextJob.maybeMeta, nextJob.clickedVideo);
         }, 350);
       }
+    }
+  }
+
+  // Continuous Auto-Download Engine: finds and queues the consecutive next episode
+  function triggerContinuousNextEpisodeDownload(currentMeta, chosenQuality = '1080p') {
+    try {
+      const curEp = parseInt(currentMeta.episodeNum, 10);
+      if (isNaN(curEp)) return null;
+      const targetEpNum = curEp + 1;
+      const drawerEpisodes = scrapeEpisodeDrawer(typeof document !== 'undefined' ? document : null);
+      if (!drawerEpisodes || drawerEpisodes.length === 0) return null;
+      const nextEp = drawerEpisodes.find(ep => parseInt(ep.episodeNum, 10) === targetEpNum);
+      if (!nextEp) return null;
+
+      const animeTitle = currentMeta.animeTitle || currentMeta.title || 'Anime';
+      const safeTitle = (animeTitle || 'Anime').replace(/[<>:"/\\|?*]/g, '').trim();
+      const epNumPadded = String(nextEp.episodeNum).padStart(2, '0');
+      const qSuffix = chosenQuality ? ` [${chosenQuality}]` : '';
+      const nextFilename = `${safeTitle} - Episode ${epNumPadded}${qSuffix}.mp4`;
+
+      const isAlreadyInQueue = tabPendingHlsQueue.some(item => {
+        const iMeta = item.maybeMeta || (typeof item.qualityOrMeta === 'object' ? item.qualityOrMeta : null);
+        return iMeta && (iMeta.filename === nextFilename || parseInt(iMeta.episodeNum, 10) === targetEpNum);
+      });
+      if (isAlreadyInQueue) return null;
+
+      const nextJobMeta = {
+        id: `fg_cont_${Date.now()}_${targetEpNum}`,
+        episodeNum: String(targetEpNum),
+        title: nextEp.title || `Episode ${targetEpNum}`,
+        animeTitle: animeTitle,
+        filename: nextFilename,
+        quality: chosenQuality,
+        url: nextEp.url || '',
+        embedUrl: nextEp.embedUrl || '',
+        href: nextEp.href || '',
+        isEpisode: true
+      };
+
+      tabPendingHlsQueue.push({ qualityOrMeta: nextJobMeta, maybeMeta: nextJobMeta, clickedVideo: null });
+      showHud('⏭️', `Continuous Mode: Queued Episode ${targetEpNum} for download...`, { isDownload: true, duration: 2500 });
+      return nextJobMeta;
+    } catch (e) {
+      console.warn('[FocusGuard] Continuous next episode trigger error:', e);
+      return null;
     }
   }
 
@@ -6489,8 +6597,9 @@
       if (window === window.top) {
         try {
           const topMeta = getEpisodeMetadata(document, data.quality);
-          if (topMeta && topMeta.animeTitle && !finalFilename.toLowerCase().endsWith('.json')) {
-            if (/^(?:Episode\s*\d+|Video)/i.test(finalFilename) || !finalFilename.includes(topMeta.animeTitle)) {
+          if (topMeta && topMeta.animeTitle && !finalFilename.toLowerCase().endsWith('.json') && !finalFilename.toLowerCase().endsWith('.srt')) {
+            const hasExplicitEp = /Episode\s*\d+/i.test(finalFilename);
+            if (!hasExplicitEp && (/^(?:Video)/i.test(finalFilename) || !finalFilename.includes(topMeta.animeTitle))) {
               finalFilename = topMeta.filename;
             }
           }
@@ -6894,6 +7003,9 @@
     window.__focusguard_convert_vtt_to_srt__ = convertVttToSrt;
     window.__focusguard_download_subtitle_file__ = downloadEpisodeSubtitleFile;
     window.__focusguard_mount_audio_track_switcher__ = mountAudioTrackSwitcher;
+    window.__focusguard_trigger_continuous_next__ = triggerContinuousNextEpisodeDownload;
+    window.__focusguard_active_object_urls__ = activeObjectUrls;
+    window.__focusguard_tab_pending_queue__ = tabPendingHlsQueue;
   } catch (e) {}
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -6945,7 +7057,12 @@
       extractSubtitleRenditions,
       convertVttToSrt,
       downloadEpisodeSubtitleFile,
-      mountAudioTrackSwitcher
+      mountAudioTrackSwitcher,
+      triggerContinuousNextEpisodeDownload,
+      activeObjectUrls,
+      revokeActiveObjectUrl,
+      clearAllActiveObjectUrls,
+      tabPendingHlsQueue
     };
   }
 })();

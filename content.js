@@ -7,7 +7,7 @@
 
   let settings = {
     enabled: true,
-    mode: 'block_and_close', // 'block_and_close' | 'keep_focus'
+    mode: 'block_and_close', // 'block_and_close' | 'keep_focus' | 'do_nothing'
     blockOverlays: true,
     whitelist: []
   };
@@ -271,6 +271,9 @@
             domain: currentHost,
             reason: 'Redirect opened; focus locked to main tab.'
           });
+        } else if (settings.mode === 'do_nothing') {
+          // Standard browser behavior: do not prevent navigation or record blocked
+          return;
         }
       } else {
         // Legitimate link clicked by user: allow navigation and inform background

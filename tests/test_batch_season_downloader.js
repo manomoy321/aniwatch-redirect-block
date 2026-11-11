@@ -388,18 +388,33 @@ async function runTestSuite() {
   }
 
   // ---------------------------------------------------------------------------
-  // Test 5: Concurrency Control Under Batch Load
+  // Test 5: Concurrency Control Under Batch Load (Unlimited Default & Configurable Limiter)
   // ---------------------------------------------------------------------------
-  console.log('\n--- Test 5: Concurrency Control Under Batch Load (Max 2 Active) ---');
+  console.log('\n--- Test 5: Concurrency Control Under Batch Load (Unlimited Default & Configurable Limiter) ---');
   {
+    // A. Unlimited Concurrency (Default)
     const queue = bg.getDownloadQueue();
     const activeJobs = queue.filter(j => j.status === 'downloading' || j.status === 'preparing');
-    const queuedJobs = queue.filter(j => j.status === 'queued');
+    assert.strictEqual(activeJobs.length, 4, 'All 4 downloads run concurrently without artificial capping (maxConcurrent = 0/unlimited)');
+    console.log('✓ Case A Passed: Unlimited concurrency launches all batch items simultaneously.');
 
-    assert.strictEqual(activeJobs.length, 2, 'Exactly 2 active download slots running (maxConcurrent = 2)');
-    assert.strictEqual(queuedJobs.length, 2, 'Remaining 2 downloads queued waiting for slots');
+    // B. Configurable Concurrency Limiter (when user configures e.g. 2)
+    bg.getQueueSettings().maxConcurrent = 2;
+    bg.setDownloadQueue([]);
+    const batchItems = [
+      { id: 'b1', url: 'https://cdn.example.com/ep01.mp4', filename: 'Anime - Episode 01 [1080p].mp4', quality: '1080p', type: 'direct' },
+      { id: 'b2', url: 'https://cdn.example.com/ep02.mp4', filename: 'Anime - Episode 02 [1080p].mp4', quality: '1080p', type: 'direct' },
+      { id: 'b3', url: 'https://cdn.example.com/ep03.mp4', filename: 'Anime - Episode 03 [1080p].mp4', quality: '1080p', type: 'direct' },
+      { id: 'b4', url: 'https://cdn.example.com/ep04.mp4', filename: 'Anime - Episode 04 [1080p].mp4', quality: '1080p', type: 'direct' }
+    ];
+    bg.queueBatchDownloads(batchItems);
+    const cappedQueue = bg.getDownloadQueue();
+    const cappedActive = cappedQueue.filter(j => j.status === 'downloading' || j.status === 'preparing');
+    const cappedQueued = cappedQueue.filter(j => j.status === 'queued');
 
-    console.log('✓ Test 5 Passed: Concurrency strictly throttled to 2 active downloads under batch load.');
+    assert.strictEqual(cappedActive.length, 2, 'Exactly 2 active download slots running when maxConcurrent = 2');
+    assert.strictEqual(cappedQueued.length, 2, 'Remaining 2 downloads queued waiting for slots');
+    console.log('✓ Case B Passed: Concurrency strictly throttled to 2 active downloads when maxConcurrent = 2.');
   }
 
   // ---------------------------------------------------------------------------
@@ -434,6 +449,7 @@ async function runTestSuite() {
     assert.strictEqual(clearRes.success, true);
     assert.strictEqual(bg.getDownloadQueue().length, 0, 'Cancelled jobs cleanly cleared');
     console.log('✓ Case D Passed: Cancelled jobs cleared from queue.');
+    bg.getQueueSettings().maxConcurrent = 0; // Restore unlimited default
   }
 
   // ---------------------------------------------------------------------------

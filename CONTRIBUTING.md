@@ -32,12 +32,14 @@ Run the full automated test suite with Node.js:
 # Run all tests
 npm test
 
-# Run individual test suites
-npm run test:download    # Episode downloader & top progress bar tests (17/17)
-npm run test:orion       # iOS Orion WebKit compatibility tests (6/6)
-```
+```bash
+# Run complete test suite
+npm test
 
-You can also open [`test_page.html`](test_page.html) directly in any browser to interactively test the HUD, download quality popover, and top progress bar.
+# Run individual test suites
+npm run test:download    # Episode downloader & top progress bar tests
+npm run test:unlimited   # Unlimited downloads & Do Nothing mode tests
+```
 
 ---
 

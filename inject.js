@@ -11,7 +11,8 @@
   // Safe helper to check extension status without throwing if documentElement is null
   function isProtectionDisabled() {
     if (!document.documentElement) return false;
-    return document.documentElement.getAttribute('data-focusguard-disabled') === 'true';
+    return document.documentElement.getAttribute('data-focusguard-disabled') === 'true' ||
+           document.documentElement.getAttribute('data-focusguard-mode') === 'do_nothing';
   }
 
   function getProtectionMode() {

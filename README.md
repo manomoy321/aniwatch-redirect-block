@@ -2,11 +2,12 @@
 
 [![Aniwatch Episode Downloader](https://img.shields.io/badge/Aniwatch-Episode%20Downloader-ff4757?style=for-the-badge&logo=crunchyroll&logoColor=white)](https://github.com/manomoy321/aniwatch-redirect-block)
 [![Quality](https://img.shields.io/badge/Quality-1080p%20|%20720p%20|%20480p-2ed573?style=for-the-badge)](https://github.com/manomoy321/aniwatch-redirect-block)
-[![Version](https://img.shields.io/badge/Version-1.1.0-1e90ff?style=for-the-badge)](https://github.com/manomoy321/aniwatch-redirect-block)
+[![Version](https://img.shields.io/badge/Version-1.3.0-1e90ff?style=for-the-badge)](https://github.com/manomoy321/aniwatch-redirect-block)
 [![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-ffa502?style=for-the-badge&logo=googlechrome&logoColor=white)](https://github.com/manomoy321/aniwatch-redirect-block)
 [![Auto DUB](https://img.shields.io/badge/Auto%20DUB-Enabled-9b59b6?style=for-the-badge)](https://github.com/manomoy321/aniwatch-redirect-block)
+[![Stress Tested](https://img.shields.io/badge/Stress%20Tested-Zero--Drop%20Immunity-00d2d3?style=for-the-badge)](https://github.com/manomoy321/aniwatch-redirect-block)
 
-> **Aniwatch Episode Downloader & Redirect Blocker (FocusGuard)** is the ultimate Chrome and Chromium browser extension designed for [Aniwatch (aniwatch.co.at)](https://aniwatch.co.at/) and [HiAnime (hianime.to)](https://hianime.to/). Download full anime episodes in **1080p Full HD**, **720p HD**, or **480p SD** directly from the video player with accurate anime title & episode numbering, real-time internet data calculation, automatic English DUB stream selection, and zero intrusive ad redirects or popups.
+> **Aniwatch Episode Downloader & Redirect Blocker (FocusGuard)** is the ultimate Chrome and Chromium browser extension designed for [Aniwatch (aniwatch.co.at)](https://aniwatch.co.at/) and [HiAnime (hianime.to)](https://hianime.to/). Download full anime episodes in **1080p Full HD**, **720p HD**, or **480p SD** directly from the video player with accurate anime title & episode numbering, real-time internet data calculation, automatic English DUB stream selection, continuous multi-episode queueing with zero-drop memory resilience, and zero intrusive ad redirects or popups.
 
 ---
 
@@ -48,8 +49,9 @@ FocusGuard embeds a native **Aniwatch Episode Downloader** directly into the Ani
 * 🏷️ **Intelligent Filename Scraper**:
   * Automatically parses the anime title and episode number directly from the page layout and active episode list.
   * Produces clean, organized filenames ready for your media library (e.g. `Jujutsu Kaisen - Episode 01 [1080p].mp4`, `Boruto Naruto Next Generations - Episode 133 [720p].mp4`, `One Piece - Episode 1089 [1080p].mp4`).
-* ⚡ **High-Speed HLS Stream Reconstruction**:
+* ⚡ **High-Speed HLS Stream Reconstruction & Unlimited Parallel Downloads**:
   * Inspects `m3u8` playlists, fetches video segments in parallel with asynchronous concurrency, and packages them into a clean, seekable `.mp4` file.
+  * **Unlimited Simultaneous Downloads**: Artificial 2-file download caps have been removed. Download entire queues in parallel without waiting, or customize active download concurrency (Unlimited, 5, 3, 2, or 1) directly from the popup settings.
   * Resolves obfuscated `blob:https://megaplay.buzz/...` MediaSource buffers seamlessly.
 * 🔄 **Resilient Segment Recovery (Exponential Backoff)**:
   * Downloads each video segment with 3-attempt exponential backoff retry. Even on unstable network connections, downloads recover automatically without failing or corrupting.
@@ -89,6 +91,10 @@ FocusGuard embeds a native **Aniwatch Episode Downloader** directly into the Ani
 
 ## 🛡️ Redirect & Pop-under Shield
 
+* 🎛️ **3 Redirect Behavior Modes**:
+  * **Block & Close (Default)**: Immediately neutralizes unsolicited popup tabs, closes redirect tabs instantly, and prevents click hijacking.
+  * **Lock Main Tab**: Allows external redirects to load silently in background tabs while strictly locking viewer focus to the main playback tab.
+  * **Do Nothing**: Disables redirect and popup interception, functioning exactly like a standard, unmodified browser.
 * 🔒 **Immediate Tab Focus Locking**:
   * When a rogue ad tab is spawned, FocusGuard locks browser focus to your main video tab. The popup tab opens silently in the background and is terminated immediately without pulling you out of fullscreen.
 * 🚫 **Rogue `window.open()` Interception**:
@@ -184,14 +190,13 @@ This extension is built on **Manifest V3** and runs on any modern Chromium-based
 
 FocusGuard includes comprehensive automated unit tests and an interactive local sandbox:
 
-* **Automated Unit Tests**:
+* **Automated Unit & Stress Tests**:
   ```bash
-  node tests/test_download_episode.js  # 16/16 tests passing (Downloader, Quality, HLS, Blob, DUB)
-  node tests/test_dub_continuity.js    # 5/5 tests passing (Focus lock, Server continuity, Buffer)
-  node tests/test_dub_all_time.js      # 4/4 tests passing (HiAnime DOM TreeWalker, DUB lock)
+  npm test                 # Complete 16-suite test pipeline (90+ assertions passing)
+  npm run test:stress      # Dedicated continuous download & high-load stress test
+  npm run test:unlimited   # Unlimited downloads & Do Nothing mode tests
+  node tests/test_download_episode.js  # Core player download suite
   ```
-* **Interactive Simulator**:
-  * Open `test_page.html` in your browser to test download popovers, overlay destruction, rogue `window.open` traps, and keyboard shortcuts in real time.
 
 ---
 

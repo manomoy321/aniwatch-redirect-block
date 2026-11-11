@@ -19,7 +19,7 @@ chrome.runtime.onInstalled.addListener(() => {
   ], (res) => {
     const defaults = {
       enabled: res.enabled !== undefined ? res.enabled : true,
-      mode: res.mode || 'block_and_close', // 'block_and_close' | 'keep_focus'
+      mode: res.mode || 'block_and_close', // 'block_and_close' | 'keep_focus' | 'do_nothing'
       blockOverlays: res.blockOverlays !== undefined ? res.blockOverlays : true,
       whitelist: res.whitelist || [],
       totalBlocked: res.totalBlocked || 0,
@@ -38,9 +38,10 @@ chrome.runtime.onInstalled.addListener(() => {
       seekSeconds: res.seekSeconds !== undefined ? res.seekSeconds : 5,
       nextEpisodeDelay: res.nextEpisodeDelay !== undefined ? res.nextEpisodeDelay : 0,
       downloadQueue: Array.isArray(res.downloadQueue) ? res.downloadQueue : [],
-      downloadSettings: res.downloadSettings || { maxConcurrent: 2 },
-      enableDownloadMetadata: res.enableDownloadMetadata !== undefined ? res.enableDownloadMetadata : false,
-      enableDownloadSubtitles: res.enableDownloadSubtitles !== undefined ? res.enableDownloadSubtitles : false,
+      downloadSettings: res.downloadSettings || { maxConcurrent: 0 },
+      enableSmoothPlayback: false,
+      enableDownloadMetadata: false,
+      enableDownloadSubtitles: false,
       preferredAudioLanguage: res.preferredAudioLanguage || 'dub'
     };
     chrome.storage.local.set(defaults);
@@ -255,10 +256,15 @@ async function fetchWithRetry(url, options = {}) {
    FocusGuard - Background Download Queue & Lifecycle Manager
    ========================================================================== */
 let downloadQueue = [];
-let queueSettings = { maxConcurrent: 2 };
+let queueSettings = { maxConcurrent: 0 }; // 0 or Infinity = unlimited concurrent downloads
 const activeJobAbortControllers = new Map();
 let queuePersistTimer = null;
 const lastBytesMap = new Map();
+
+// Helper to determine if concurrency is unlimited
+function isConcurrencyUnlimited(limit = queueSettings.maxConcurrent) {
+  return limit === 0 || limit === null || limit === undefined || limit === Infinity || limit === 'unlimited' || (typeof limit === 'number' && limit <= 0);
+}
 
 // Load queue from persistent storage
 async function initDownloadQueue() {
@@ -274,7 +280,10 @@ async function initDownloadQueue() {
       downloadQueue = res.downloadQueue;
     }
     if (res.downloadSettings && typeof res.downloadSettings.maxConcurrent === 'number') {
-      queueSettings.maxConcurrent = res.downloadSettings.maxConcurrent;
+      // Migrate legacy default of 2 to 0 (unlimited)
+      queueSettings.maxConcurrent = (res.downloadSettings.maxConcurrent === 2) ? 0 : res.downloadSettings.maxConcurrent;
+    } else {
+      queueSettings.maxConcurrent = 0;
     }
     await reconcileQueueWithBrowser();
   } catch (e) {
@@ -450,15 +459,17 @@ function queueDownload(item) {
   return { success: true, job: newJob };
 }
 
-// Process queue and launch jobs up to maxConcurrent limit
+// Process queue and launch jobs up to maxConcurrent limit (unlimited when maxConcurrent is 0 or Infinity)
 function processQueue() {
+  const isUnlimited = isConcurrencyUnlimited(queueSettings.maxConcurrent);
   const activeCount = downloadQueue.filter(j => j.status === 'downloading' || j.status === 'preparing').length;
-  const availableSlots = queueSettings.maxConcurrent - activeCount;
+  const availableSlots = isUnlimited ? Infinity : Math.max(0, queueSettings.maxConcurrent - activeCount);
 
-  if (availableSlots <= 0) return;
+  if (!isUnlimited && availableSlots <= 0) return;
 
   const pending = downloadQueue.filter(j => j.status === 'queued');
-  for (let i = 0; i < Math.min(availableSlots, pending.length); i++) {
+  const countToStart = isUnlimited ? pending.length : Math.min(availableSlots, pending.length);
+  for (let i = 0; i < countToStart; i++) {
     startJob(pending[i]);
   }
 }
@@ -527,6 +538,69 @@ async function startJob(job) {
     // HLS downloads run via segment runner in player frame and report live progress
     job.status = 'downloading';
     persistQueue(true);
+    dispatchHlsJobToTabs(job);
+  }
+}
+
+// Dispatches an HLS download job to the active player tab or available anime watch tabs
+async function dispatchHlsJobToTabs(job) {
+  if (!job) return false;
+  if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) return false;
+
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        let targetTab = tabs && tabs[0];
+        if (targetTab && targetTab.id) {
+          sendHlsJobToTab(targetTab.id, job);
+          resolve(true);
+        } else {
+          chrome.tabs.query({}, (allTabs) => {
+            if (!allTabs || allTabs.length === 0) {
+              resolve(false);
+              return;
+            }
+            const animeTab = allTabs.find(t => t.url && (t.url.includes('aniwatch') || t.url.includes('hianime') || t.url.includes('watch')));
+            const finalTab = animeTab || allTabs[0];
+            if (finalTab && finalTab.id) {
+              sendHlsJobToTab(finalTab.id, job);
+              resolve(true);
+            } else {
+              resolve(false);
+            }
+          });
+        }
+      });
+    } catch (e) {
+      console.warn('[FocusGuard Queue] dispatchHlsJobToTabs error:', e);
+      resolve(false);
+    }
+  });
+}
+
+function sendHlsJobToTab(tabId, job) {
+  if (!tabId || !job) return false;
+  try {
+    const payload = {
+      action: 'execute_player_cmd',
+      cmd: 'download_video',
+      value: {
+        id: job.id,
+        jobId: job.id,
+        url: job.url,
+        filename: job.filename,
+        quality: job.quality,
+        embedUrl: job.embedUrl,
+        episodeNum: job.episodeNum
+      }
+    };
+    if (chrome.tabs.sendMessage) {
+      const res = chrome.tabs.sendMessage(tabId, payload);
+      if (res && res.catch) res.catch(() => {});
+    }
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -745,6 +819,9 @@ function updateJobProgress(data) {
   job.updatedAt = Date.now();
 
   if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+    if (activeJobAbortControllers.has(job.id)) {
+      activeJobAbortControllers.delete(job.id);
+    }
     persistQueue(true);
     processQueue();
   } else {
@@ -874,6 +951,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === 'set_queue_settings') {
+    if (message.settings && typeof message.settings.maxConcurrent !== 'undefined') {
+      queueSettings.maxConcurrent = Number(message.settings.maxConcurrent) || 0;
+      persistQueue(true);
+      processQueue();
+    }
+    sendResponse({ success: true, queueSettings });
+    return true;
+  }
+
   if (message.action === 'pause_download') {
     const res = pauseJob(message.jobId);
     sendResponse(res);
@@ -976,7 +1063,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const embedUrl = message.embedUrl || '';
     (async () => {
       try {
-        await setStreamBypassHeaders(embedUrl, targetUrl);
+        await setStreamBypassHeaders(embedUrl, targetUrl, false);
         sendResponse({ success: true });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -1061,7 +1148,7 @@ if (typeof chrome !== 'undefined' && chrome.declarativeNetRequest && chrome.decl
   } catch (e) {}
 }
 
-async function setStreamBypassHeaders(embedUrl, targetUrl) {
+async function setStreamBypassHeaders(embedUrl, targetUrl, incrementCounter = true) {
   if (!chrome.declarativeNetRequest || !chrome.declarativeNetRequest.updateDynamicRules) return;
   if (!embedUrl && !targetUrl) return;
 
@@ -1069,7 +1156,9 @@ async function setStreamBypassHeaders(embedUrl, targetUrl) {
     clearTimeout(streamBypassClearTimer);
     streamBypassClearTimer = null;
   }
-  activeStreamBypassCount++;
+  if (incrementCounter) {
+    activeStreamBypassCount++;
+  }
 
   try {
     let cleanOrigin = '';
@@ -1289,6 +1378,10 @@ chrome.tabs.onCreated.addListener(async (newTab) => {
           } else if (mode === 'keep_focus') {
             chrome.tabs.update(openerTabId, { active: true }).catch(() => {});
             recordBlockedEvent(openerHost, openerTabId, 'Redirect opened in background; focus kept on main tab.');
+          } else if (mode === 'do_nothing') {
+            // Normal browser behavior: do nothing, allow tab to open and navigate freely
+            console.log('[FocusGuard] Do Nothing mode: Allowing normal browser tab behavior for', newTab.id, destUrl);
+            trackedChildTabs.delete(newTab.id);
           }
         }
       } catch (e) {}
@@ -1365,6 +1458,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         trackedChildTabs.delete(tabId);
       } else if (mode === 'keep_focus') {
         chrome.tabs.update(childInfo.openerTabId, { active: true }).catch(() => {});
+      } else if (mode === 'do_nothing') {
+        // Normal browser behavior: do not close or switch tab focus
+        trackedChildTabs.delete(tabId);
       }
     } else {
       // Legitimate external navigation opened by user: allow and finish tracking
@@ -1418,7 +1514,14 @@ if (typeof module !== 'undefined' && module.exports) {
     updateJobProgress,
     getDownloadQueue: () => downloadQueue,
     getQueueSettings: () => queueSettings,
+    setQueueSettings: (s) => { queueSettings = Object.assign(queueSettings, s); processQueue(); },
+    isConcurrencyUnlimited,
     setDownloadQueue: (q) => { downloadQueue = q; },
+    dispatchHlsJobToTabs,
+    sendHlsJobToTab,
+    setStreamBypassHeaders,
+    clearStreamBypassHeaders,
+    getActiveStreamBypassCount: () => activeStreamBypassCount,
     isAdOrRedirectUrl
   };
 }
